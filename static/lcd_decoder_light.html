@@ -269,20 +269,23 @@
       border: 0 !important;
     }
     .comms-warning-clean {
+      grid-row: 1 / -1;
+      grid-column: 1 / -1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 32px 24px;
+      padding: 5% 4%;
       margin: auto;
-      border: 3px solid #ef4444;
+      border: 4px solid #ef4444;
       border-radius: 20px;
-      background: rgba(239, 68, 68, 0.12);
-      box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+      background: rgba(239, 68, 68, 0.14);
+      box-shadow: 0 0 35px rgba(239, 68, 68, 0.45);
       animation: comms-pulse 1.8s infinite ease-in-out;
       width: 90%;
-      max-width: 800px;
+      max-width: 900px;
+      height: 80%;
       box-sizing: border-box;
     }
     @keyframes comms-pulse {
@@ -1016,14 +1019,14 @@
               <div class="comms-lost-card">
                 <div class="comms-lost-icon">⚠️</div>
                 <div class="comms-lost-title">Por favor verifique conexión con el display</div>
-                <div class="comms-lost-desc">Sin comunicación con el analizador lógico (&gt; 5s)</div>
+                <div class="comms-lost-desc" id="lcdWarningDesc">Analizador lógico desconectado o sin señal</div>
               </div>
             </div>
             <div class="clean-display" id="cleanDisplay" aria-label="Clean recognized display" hidden>
               <div class="comms-warning-clean" id="cleanCommsWarning" hidden>
                 <div class="warning-icon-clean">⚠️</div>
                 <div class="warning-title-clean">Por favor verifique conexión con el display</div>
-                <div class="warning-desc-clean">Sin comunicación con el analizador lógico (&gt; 5s)</div>
+                <div class="warning-desc-clean" id="cleanWarningDesc">Analizador lógico desconectado o sin señal</div>
               </div>
               <div class="clean-row" id="cleanRowContainer1">
                 <span class="clean-marker">$</span>
@@ -1481,7 +1484,9 @@
       cleanRows: ['—', '—'],
       commsLost: false,
       commsLostStartTime: 0,
+      commsLostReason: '',
       lastLiveTrafficTime: Date.now(),
+      lastValidDecodedTime: 0,
       visualPadding: false,
       displayColors: { ...defaultDisplayColors },
       colorPresets: Object.fromEntries(
@@ -2652,6 +2657,9 @@
         const text = complete
           ? analyses.map((analysis) => analysis.text).join('\n')
           : null;
+        if (complete && text !== null) {
+          state.lastValidDecodedTime = Date.now();
+        }
         if (text !== grid.lastText) {
           grid.lastText = text;
           changed = true;
@@ -2779,23 +2787,45 @@
     function startRecognitionHeartbeat() {
       if (state.recognitionHeartbeat) return;
       state.recognitionHeartbeat = window.setInterval(() => {
-        if (!state.liveMode) return;
         const now = Date.now();
-        const elapsed = now - (state.lastLiveTrafficTime || now);
-        // Watchdog: If no SPI traffic or capture not running for > 5 seconds, clear display and alert
-        if (!state.liveRunning || elapsed > 5000) {
-          setCommsLostState(true);
+
+        // Caso 1: Analizador lógico no presente o no corriendo la captura
+        if (!state.liveDeviceAvailable) {
+          setCommsLostState(true, 'Analizador lógico no conectado');
           return;
         }
-        // If traffic resumed and commsLost was active, try to clear it (setCommsLostState will enforce >=15s hold)
+        if (!state.liveRunning || !state.liveMode) {
+          setCommsLostState(true, 'Captura en vivo detenida');
+          return;
+        }
+
+        // Caso 2: Sin pulsos / paquetes SPI del analizador por más de 5 segundos
+        const spiElapsed = now - (state.lastLiveTrafficTime || now);
+        if (spiElapsed > 5000) {
+          setCommsLostState(true, 'Sin pulsos SPI del display (> 5s)');
+          return;
+        }
+
+        // Evaluar reconocimiento en el framebuffer actual
+        if (!state.liveRenderPending) {
+          runRecognitionEvaluation();
+        }
+
+        // Caso 3: Sin señal decodificada válida de display por más de 5 segundos
+        // (es decir, llegan bytes pero no forman una pantalla o números válidos)
+        const validDecodedElapsed = state.lastValidDecodedTime > 0
+          ? now - state.lastValidDecodedTime
+          : (now - (state.lastLiveTrafficTime || now));
+        if (validDecodedElapsed > 5000) {
+          setCommsLostState(true, 'Sin señal decodificada válida (> 5s)');
+          return;
+        }
+
+        // Si hay analizador, pulsos SPI y señal decodificada válida:
+        // Intentar retirar la alerta (setCommsLostState respetará los 15s mínimos si estuvo activa)
         if (state.commsLost) {
           setCommsLostState(false);
-          if (state.commsLost) return; // Still in 15s hold
         }
-        if (state.liveRenderPending) return;
-        // The ST7565 framebuffer is persistent. With no new SPI bytes, compare
-        // against the last complete image instead of clearing or invalidating it.
-        runRecognitionEvaluation();
       }, 500);
     }
 
@@ -2875,17 +2905,24 @@
       if (state.ready) draw();
     }
 
-    function setCommsLostState(lost) {
+    function setCommsLostState(lost, reason = '') {
       const now = Date.now();
+      const cleanWarning = $('cleanCommsWarning');
+      const lcdOverlay = $('lcdCommsOverlay');
+      const row1Container = $('cleanRowContainer1');
+      const row2Container = $('cleanRowContainer2');
+      const cleanDesc = $('cleanWarningDesc');
+      const lcdDesc = $('lcdWarningDesc');
+
       if (lost) {
         if (!state.commsLost) {
           state.commsLost = true;
           state.commsLostStartTime = now;
         }
-        const cleanWarning = $('cleanCommsWarning');
-        const lcdOverlay = $('lcdCommsOverlay');
-        const row1Container = $('cleanRowContainer1');
-        const row2Container = $('cleanRowContainer2');
+        state.commsLostReason = reason || state.commsLostReason || 'Sin señal del display';
+
+        if (cleanDesc) cleanDesc.textContent = state.commsLostReason;
+        if (lcdDesc) lcdDesc.textContent = state.commsLostReason;
         if (cleanWarning) cleanWarning.hidden = false;
         if (lcdOverlay) lcdOverlay.hidden = false;
         if (row1Container) row1Container.hidden = true;
@@ -2893,8 +2930,12 @@
         state.cleanRows = ['—', '—'];
         $('cleanRow1').textContent = '—';
         $('cleanRow2').textContent = '—';
-        $('comparisonStatus').textContent = '⚠️ Sin señal: Por favor verifique conexión con el display';
+        $('comparisonStatus').textContent = `⚠️ Por favor verifique conexión con el display (${state.commsLostReason})`;
       } else {
+        // Cannot clear if hardware is not connected or capture is not running
+        if (!state.liveDeviceAvailable || !state.liveRunning) {
+          return;
+        }
         // Enforce displaying the message for at least 15s once triggered
         if (state.commsLost && (now - state.commsLostStartTime < 15000)) {
           return;
@@ -2902,10 +2943,7 @@
         if (!state.commsLost) return;
         state.commsLost = false;
         state.commsLostStartTime = 0;
-        const cleanWarning = $('cleanCommsWarning');
-        const lcdOverlay = $('lcdCommsOverlay');
-        const row1Container = $('cleanRowContainer1');
-        const row2Container = $('cleanRowContainer2');
+        state.commsLostReason = '';
         if (cleanWarning) cleanWarning.hidden = true;
         if (lcdOverlay) lcdOverlay.hidden = true;
         if (row1Container) row1Container.hidden = false;
@@ -3740,7 +3778,7 @@
       $('channels').textContent = 'D0=/CS · D1=SCLK · D2=MOSI · D3=D/C';
       updateLiveTimeline(status);
       if (!state.liveRunning) {
-        setCommsLostState(true);
+        setCommsLostState(true, status.lastError || 'Captura en vivo no iniciada o detenida');
       }
     }
 
@@ -3888,7 +3926,6 @@
       state.liveSource = source;
       source.addEventListener('snapshot', (message) => {
         state.lastLiveTrafficTime = Date.now();
-        setCommsLostState(false);
         installLiveSnapshot(JSON.parse(message.data));
       });
       source.addEventListener('events', (message) => {
@@ -3900,7 +3937,6 @@
           return;
         }
         state.lastLiveTrafficTime = Date.now();
-        setCommsLostState(false);
         for (const event of events) applyLiveEvent(event);
         scheduleLiveRender(payload.status);
       });
@@ -5522,6 +5558,25 @@
           ? 'Live decoder ready · press Start live'
           : 'Connect a logic analyzer to start';
       $('capture').textContent = 'live';
+
+      // Poll hardware presence and live status periodically if not currently running
+      window.setInterval(async () => {
+        if (!state.liveRunning) {
+          await discoverLiveDevices();
+          try {
+            const resp = await fetch('/api/live/status');
+            if (resp.ok) {
+              const st = await resp.json();
+              updateLiveStatus(st);
+              if (st.running && !state.liveMode) {
+                state.liveMode = true;
+                state.liveRunning = true;
+                connectLiveEvents();
+              }
+            }
+          } catch {}
+        }
+      }, 2000);
     }
 
     initializeApp();
