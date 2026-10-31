@@ -2822,7 +2822,7 @@
         }
 
         // Si hay analizador, pulsos SPI y señal decodificada válida:
-        // Intentar retirar la alerta (setCommsLostState respetará los 15s mínimos si estuvo activa)
+        // Retirar la alerta de inmediato y restaurar los datos en pantalla
         if (state.commsLost) {
           setCommsLostState(false);
         }
@@ -2934,10 +2934,6 @@
       } else {
         // Cannot clear if hardware is not connected or capture is not running
         if (!state.liveDeviceAvailable || !state.liveRunning) {
-          return;
-        }
-        // Enforce displaying the message for at least 15s once triggered
-        if (state.commsLost && (now - state.commsLostStartTime < 15000)) {
           return;
         }
         if (!state.commsLost) return;
