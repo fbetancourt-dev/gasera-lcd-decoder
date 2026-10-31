@@ -1,24 +1,24 @@
 {
   "version": 1,
-  "activeVariant": "v2",
+  "activeVariant": "v1",
   "display": {
     "controller": "ST7565/ST7565R",
     "controllerWidth": 132,
     "visibleWidth": 128,
     "height": 64,
-    "visibleColumnStart": 0,
-    "pageMapping": "identity",
+    "visibleColumnStart": 3,
+    "pageMapping": "xor-4",
     "gridEnabled": true,
     "fullscreenAspect": "preserve-grid",
     "visualPadding": false,
     "cleanUnitStyle": "lt",
     "colors": {
-      "foreground": "#000000",
-      "background": "#ffffff",
-      "majorGrid": "#cccccc",
-      "minorGrid": "#e5e5e5"
+      "foreground": "#704b25",
+      "background": "#e6c99a",
+      "majorGrid": "#a98252",
+      "minorGrid": "#ceb080"
     },
-    "activeColorPreset": "Black on White",
+    "activeColorPreset": "Sepia Classic",
     "colorPresets": {
       "Black on White": {
         "foreground": "#000000",
