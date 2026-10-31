@@ -21,6 +21,7 @@
       --lcd-minor-grid: #b8bdb7;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       margin: 0;
       min-width: 720px;
@@ -321,39 +322,49 @@
       opacity: 0.9;
     }
     .comms-lost-overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(8, 11, 15, 0.88);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-      backdrop-filter: blur(4px);
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      background: rgba(11, 14, 18, 0.96) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      z-index: 99999999 !important;
+      backdrop-filter: blur(8px);
+      box-sizing: border-box !important;
     }
     .comms-lost-card {
-      background: #1e1215;
-      border: 2px solid #ef4444;
-      border-radius: 16px;
-      padding: 32px 40px;
+      background: #191012;
+      border: 4px solid #ef4444;
+      border-radius: 24px;
+      padding: 50px 60px;
       text-align: center;
-      box-shadow: 0 0 30px rgba(239, 68, 68, 0.5);
+      box-shadow: 0 0 50px rgba(239, 68, 68, 0.65);
       animation: comms-pulse 1.8s infinite ease-in-out;
-      max-width: 90%;
+      width: 90vw;
+      max-width: 1050px;
+      box-sizing: border-box;
     }
     .comms-lost-icon {
-      font-size: 48px;
-      margin-bottom: 10px;
+      font-size: 72px;
+      margin-bottom: 20px;
+      line-height: 1;
     }
     .comms-lost-title {
-      font-size: 24px;
-      font-weight: 800;
+      font-size: clamp(28px, 4.5vw, 48px);
+      font-weight: 900;
       color: #ef4444;
       text-transform: uppercase;
-      margin-bottom: 6px;
+      letter-spacing: 1.5px;
+      line-height: 1.2;
+      margin-bottom: 16px;
     }
     .comms-lost-desc {
-      font-size: 15px;
+      font-size: clamp(16px, 2.2vw, 24px);
+      font-weight: 600;
       color: #fca5a5;
+      opacity: 0.95;
     }
     .lcd-scroll.clean-mode {
       overflow: auto;
@@ -1015,19 +1026,7 @@
         <div class="lcd-scroll" id="lcdScroll">
           <div class="lcd-stage">
             <canvas id="lcd" width="1024" height="512" aria-label="128 by 64 LCD pixel grid"></canvas>
-            <div class="comms-lost-overlay" id="lcdCommsOverlay" hidden>
-              <div class="comms-lost-card">
-                <div class="comms-lost-icon">⚠️</div>
-                <div class="comms-lost-title">Por favor verifique conexión con el display</div>
-                <div class="comms-lost-desc" id="lcdWarningDesc">Analizador lógico desconectado o sin señal</div>
-              </div>
-            </div>
             <div class="clean-display" id="cleanDisplay" aria-label="Clean recognized display" hidden>
-              <div class="comms-warning-clean" id="cleanCommsWarning" hidden>
-                <div class="warning-icon-clean">⚠️</div>
-                <div class="warning-title-clean">Por favor verifique conexión con el display</div>
-                <div class="warning-desc-clean" id="cleanWarningDesc">Analizador lógico desconectado o sin señal</div>
-              </div>
               <div class="clean-row" id="cleanRowContainer1">
                 <span class="clean-marker">$</span>
                 <span class="clean-value" id="cleanRow1">—</span>
@@ -1037,6 +1036,14 @@
                 <span class="clean-value" id="cleanRow2">—</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div class="comms-lost-overlay" id="globalCommsOverlay" hidden>
+          <div class="comms-lost-card">
+            <div class="comms-lost-icon">⚠️</div>
+            <div class="comms-lost-title">Por favor verifique conexión con el display</div>
+            <div class="comms-lost-desc" id="globalWarningDesc">Analizador lógico desconectado o sin señal</div>
           </div>
         </div>
 
@@ -1485,7 +1492,7 @@
       commsLost: false,
       commsLostStartTime: 0,
       commsLostReason: '',
-      lastLiveTrafficTime: Date.now(),
+      lastLiveTrafficTime: 0,
       lastValidDecodedTime: 0,
       visualPadding: false,
       displayColors: { ...defaultDisplayColors },
@@ -2800,7 +2807,10 @@
         }
 
         // Caso 2: Sin pulsos / paquetes SPI del analizador por más de 5 segundos
-        const spiElapsed = now - (state.lastLiveTrafficTime || now);
+        // Si no ha llegado ningún tráfico o han pasado más de 5s desde el último paquete
+        const spiElapsed = state.lastLiveTrafficTime > 0
+          ? now - state.lastLiveTrafficTime
+          : (state.liveStatusStartedAt ? now - state.liveStatusStartedAt : 6000);
         if (spiElapsed > 5000) {
           setCommsLostState(true, 'Sin pulsos SPI del display (> 5s)');
           return;
@@ -2815,7 +2825,7 @@
         // (es decir, llegan bytes pero no forman una pantalla o números válidos)
         const validDecodedElapsed = state.lastValidDecodedTime > 0
           ? now - state.lastValidDecodedTime
-          : (now - (state.lastLiveTrafficTime || now));
+          : spiElapsed;
         if (validDecodedElapsed > 5000) {
           setCommsLostState(true, 'Sin señal decodificada válida (> 5s)');
           return;
@@ -2907,12 +2917,10 @@
 
     function setCommsLostState(lost, reason = '') {
       const now = Date.now();
-      const cleanWarning = $('cleanCommsWarning');
-      const lcdOverlay = $('lcdCommsOverlay');
+      const globalOverlay = $('globalCommsOverlay');
+      const globalDesc = $('globalWarningDesc');
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
-      const cleanDesc = $('cleanWarningDesc');
-      const lcdDesc = $('lcdWarningDesc');
 
       if (lost) {
         if (!state.commsLost) {
@@ -2921,10 +2929,8 @@
         }
         state.commsLostReason = reason || state.commsLostReason || 'Sin señal del display';
 
-        if (cleanDesc) cleanDesc.textContent = state.commsLostReason;
-        if (lcdDesc) lcdDesc.textContent = state.commsLostReason;
-        if (cleanWarning) cleanWarning.hidden = false;
-        if (lcdOverlay) lcdOverlay.hidden = false;
+        if (globalDesc) globalDesc.textContent = state.commsLostReason;
+        if (globalOverlay) globalOverlay.hidden = false;
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
         state.cleanRows = ['—', '—'];
@@ -2940,8 +2946,7 @@
         state.commsLost = false;
         state.commsLostStartTime = 0;
         state.commsLostReason = '';
-        if (cleanWarning) cleanWarning.hidden = true;
-        if (lcdOverlay) lcdOverlay.hidden = true;
+        if (globalOverlay) globalOverlay.hidden = true;
         if (row1Container) row1Container.hidden = false;
         if (row2Container) row2Container.hidden = false;
         renderCleanDisplay();
@@ -3740,6 +3745,9 @@
     function updateLiveStatus(status) {
       if (!status) return;
       state.liveLastStatus = status;
+      if (status.startedAt) {
+        state.liveStatusStartedAt = status.startedAt * 1000;
+      }
       updateInputEventRate(status);
       state.liveRunning = Boolean(status.running);
       $('liveStart').disabled = state.liveRunning || !state.liveDeviceAvailable;
@@ -5555,23 +5563,21 @@
           : 'Connect a logic analyzer to start';
       $('capture').textContent = 'live';
 
-      // Poll hardware presence and live status periodically if not currently running
+      // Poll hardware presence and live status periodically
       window.setInterval(async () => {
-        if (!state.liveRunning) {
-          await discoverLiveDevices();
-          try {
-            const resp = await fetch('/api/live/status');
-            if (resp.ok) {
-              const st = await resp.json();
-              updateLiveStatus(st);
-              if (st.running && !state.liveMode) {
-                state.liveMode = true;
-                state.liveRunning = true;
-                connectLiveEvents();
-              }
+        await discoverLiveDevices();
+        try {
+          const resp = await fetch('/api/live/status');
+          if (resp.ok) {
+            const st = await resp.json();
+            updateLiveStatus(st);
+            if (st.running && !state.liveMode) {
+              state.liveMode = true;
+              state.liveRunning = true;
+              connectLiveEvents();
             }
-          } catch {}
-        }
+          }
+        } catch {}
       }, 2000);
     }
 
