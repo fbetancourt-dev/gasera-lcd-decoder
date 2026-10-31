@@ -1480,6 +1480,7 @@
       cleanUnitStyle: 'lt',
       cleanRows: ['—', '—'],
       commsLost: false,
+      commsLostStartTime: 0,
       lastLiveTrafficTime: Date.now(),
       visualPadding: false,
       displayColors: { ...defaultDisplayColors },
@@ -2779,12 +2780,17 @@
       if (state.recognitionHeartbeat) return;
       state.recognitionHeartbeat = window.setInterval(() => {
         if (!state.liveMode) return;
-        // Watchdog: If no SPI traffic or capture not running for > 5 seconds, clear display and alert
         const now = Date.now();
         const elapsed = now - (state.lastLiveTrafficTime || now);
+        // Watchdog: If no SPI traffic or capture not running for > 5 seconds, clear display and alert
         if (!state.liveRunning || elapsed > 5000) {
           setCommsLostState(true);
           return;
+        }
+        // If traffic resumed and commsLost was active, try to clear it (setCommsLostState will enforce >=15s hold)
+        if (state.commsLost) {
+          setCommsLostState(false);
+          if (state.commsLost) return; // Still in 15s hold
         }
         if (state.liveRenderPending) return;
         // The ST7565 framebuffer is persistent. With no new SPI bytes, compare
@@ -2870,14 +2876,16 @@
     }
 
     function setCommsLostState(lost) {
-      if (state.commsLost === lost) return;
-      state.commsLost = lost;
-      const cleanWarning = $('cleanCommsWarning');
-      const lcdOverlay = $('lcdCommsOverlay');
-      const row1Container = $('cleanRowContainer1');
-      const row2Container = $('cleanRowContainer2');
-
+      const now = Date.now();
       if (lost) {
+        if (!state.commsLost) {
+          state.commsLost = true;
+          state.commsLostStartTime = now;
+        }
+        const cleanWarning = $('cleanCommsWarning');
+        const lcdOverlay = $('lcdCommsOverlay');
+        const row1Container = $('cleanRowContainer1');
+        const row2Container = $('cleanRowContainer2');
         if (cleanWarning) cleanWarning.hidden = false;
         if (lcdOverlay) lcdOverlay.hidden = false;
         if (row1Container) row1Container.hidden = true;
@@ -2887,6 +2895,17 @@
         $('cleanRow2').textContent = '—';
         $('comparisonStatus').textContent = '⚠️ Sin señal: Por favor verifique conexión con el display';
       } else {
+        // Enforce displaying the message for at least 15s once triggered
+        if (state.commsLost && (now - state.commsLostStartTime < 15000)) {
+          return;
+        }
+        if (!state.commsLost) return;
+        state.commsLost = false;
+        state.commsLostStartTime = 0;
+        const cleanWarning = $('cleanCommsWarning');
+        const lcdOverlay = $('lcdCommsOverlay');
+        const row1Container = $('cleanRowContainer1');
+        const row2Container = $('cleanRowContainer2');
         if (cleanWarning) cleanWarning.hidden = true;
         if (lcdOverlay) lcdOverlay.hidden = true;
         if (row1Container) row1Container.hidden = false;
