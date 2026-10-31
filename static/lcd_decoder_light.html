@@ -268,6 +268,90 @@
       box-shadow: none !important;
       border: 0 !important;
     }
+    .comms-warning-clean {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 32px 24px;
+      margin: auto;
+      border: 3px solid #ef4444;
+      border-radius: 20px;
+      background: rgba(239, 68, 68, 0.12);
+      box-shadow: 0 0 30px rgba(239, 68, 68, 0.4);
+      animation: comms-pulse 1.8s infinite ease-in-out;
+      width: 90%;
+      max-width: 800px;
+      box-sizing: border-box;
+    }
+    @keyframes comms-pulse {
+      0%, 100% {
+        border-color: #ef4444;
+        box-shadow: 0 0 25px rgba(239, 68, 68, 0.4);
+        transform: scale(1);
+      }
+      50% {
+        border-color: #f87171;
+        box-shadow: 0 0 45px rgba(239, 68, 68, 0.8);
+        transform: scale(1.015);
+      }
+    }
+    .warning-icon-clean {
+      font-size: 64px;
+      margin-bottom: 12px;
+      line-height: 1;
+    }
+    .warning-title-clean {
+      font-size: 32px;
+      font-weight: 900;
+      color: #ef4444;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      line-height: 1.25;
+      margin-bottom: 8px;
+    }
+    .warning-desc-clean {
+      font-size: 18px;
+      font-weight: 600;
+      color: #f87171;
+      opacity: 0.9;
+    }
+    .comms-lost-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 11, 15, 0.88);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      backdrop-filter: blur(4px);
+    }
+    .comms-lost-card {
+      background: #1e1215;
+      border: 2px solid #ef4444;
+      border-radius: 16px;
+      padding: 32px 40px;
+      text-align: center;
+      box-shadow: 0 0 30px rgba(239, 68, 68, 0.5);
+      animation: comms-pulse 1.8s infinite ease-in-out;
+      max-width: 90%;
+    }
+    .comms-lost-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+    .comms-lost-title {
+      font-size: 24px;
+      font-weight: 800;
+      color: #ef4444;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .comms-lost-desc {
+      font-size: 15px;
+      color: #fca5a5;
+    }
     .lcd-scroll.clean-mode {
       overflow: auto;
       background: var(--lcd-background);
@@ -928,12 +1012,24 @@
         <div class="lcd-scroll" id="lcdScroll">
           <div class="lcd-stage">
             <canvas id="lcd" width="1024" height="512" aria-label="128 by 64 LCD pixel grid"></canvas>
+            <div class="comms-lost-overlay" id="lcdCommsOverlay" hidden>
+              <div class="comms-lost-card">
+                <div class="comms-lost-icon">⚠️</div>
+                <div class="comms-lost-title">Por favor verifique conexión con el display</div>
+                <div class="comms-lost-desc">Sin comunicación con el analizador lógico (&gt; 5s)</div>
+              </div>
+            </div>
             <div class="clean-display" id="cleanDisplay" aria-label="Clean recognized display" hidden>
-              <div class="clean-row">
+              <div class="comms-warning-clean" id="cleanCommsWarning" hidden>
+                <div class="warning-icon-clean">⚠️</div>
+                <div class="warning-title-clean">Por favor verifique conexión con el display</div>
+                <div class="warning-desc-clean">Sin comunicación con el analizador lógico (&gt; 5s)</div>
+              </div>
+              <div class="clean-row" id="cleanRowContainer1">
                 <span class="clean-marker">$</span>
                 <span class="clean-value" id="cleanRow1">—</span>
               </div>
-              <div class="clean-row">
+              <div class="clean-row" id="cleanRowContainer2">
                 <span class="clean-marker" id="cleanUnitMarker">Lt</span>
                 <span class="clean-value" id="cleanRow2">—</span>
               </div>
@@ -1383,6 +1479,8 @@
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
       cleanRows: ['—', '—'],
+      commsLost: false,
+      lastLiveTrafficTime: Date.now(),
       visualPadding: false,
       displayColors: { ...defaultDisplayColors },
       colorPresets: Object.fromEntries(
@@ -2680,7 +2778,15 @@
     function startRecognitionHeartbeat() {
       if (state.recognitionHeartbeat) return;
       state.recognitionHeartbeat = window.setInterval(() => {
-        if (!state.liveMode || state.liveRenderPending) return;
+        if (!state.liveMode) return;
+        // Watchdog: If no SPI traffic or capture not running for > 5 seconds, clear display and alert
+        const now = Date.now();
+        const elapsed = now - (state.lastLiveTrafficTime || now);
+        if (!state.liveRunning || elapsed > 5000) {
+          setCommsLostState(true);
+          return;
+        }
+        if (state.liveRenderPending) return;
         // The ST7565 framebuffer is persistent. With no new SPI bytes, compare
         // against the last complete image instead of clearing or invalidating it.
         runRecognitionEvaluation();
@@ -2763,7 +2869,38 @@
       if (state.ready) draw();
     }
 
+    function setCommsLostState(lost) {
+      if (state.commsLost === lost) return;
+      state.commsLost = lost;
+      const cleanWarning = $('cleanCommsWarning');
+      const lcdOverlay = $('lcdCommsOverlay');
+      const row1Container = $('cleanRowContainer1');
+      const row2Container = $('cleanRowContainer2');
+
+      if (lost) {
+        if (cleanWarning) cleanWarning.hidden = false;
+        if (lcdOverlay) lcdOverlay.hidden = false;
+        if (row1Container) row1Container.hidden = true;
+        if (row2Container) row2Container.hidden = true;
+        state.cleanRows = ['—', '—'];
+        $('cleanRow1').textContent = '—';
+        $('cleanRow2').textContent = '—';
+        $('comparisonStatus').textContent = '⚠️ Sin señal: Por favor verifique conexión con el display';
+      } else {
+        if (cleanWarning) cleanWarning.hidden = true;
+        if (lcdOverlay) lcdOverlay.hidden = true;
+        if (row1Container) row1Container.hidden = false;
+        if (row2Container) row2Container.hidden = false;
+        renderCleanDisplay();
+      }
+    }
+
     function renderCleanDisplay() {
+      if (state.commsLost) {
+        $('cleanRow1').textContent = '—';
+        $('cleanRow2').textContent = '—';
+        return;
+      }
       $('cleanRow1').textContent = state.cleanRows[0] || '—';
       $('cleanRow2').textContent = state.cleanRows[1] || '—';
       const marker = $('cleanUnitMarker');
@@ -3583,6 +3720,9 @@
         `${samplesReceived.toLocaleString()} samples`;
       $('channels').textContent = 'D0=/CS · D1=SCLK · D2=MOSI · D3=D/C';
       updateLiveTimeline(status);
+      if (!state.liveRunning) {
+        setCommsLostState(true);
+      }
     }
 
     function scheduleLiveRender(status) {
@@ -3728,6 +3868,8 @@
       const source = new EventSource('/api/live/events');
       state.liveSource = source;
       source.addEventListener('snapshot', (message) => {
+        state.lastLiveTrafficTime = Date.now();
+        setCommsLostState(false);
         installLiveSnapshot(JSON.parse(message.data));
       });
       source.addEventListener('events', (message) => {
@@ -3738,6 +3880,8 @@
           updateLiveStatus(payload.status);
           return;
         }
+        state.lastLiveTrafficTime = Date.now();
+        setCommsLostState(false);
         for (const event of events) applyLiveEvent(event);
         scheduleLiveRender(payload.status);
       });
@@ -3774,6 +3918,7 @@
       $('liveRate').disabled = false;
       $('liveBuffer').disabled = false;
       $('liveStatus').textContent = 'Live: stopped';
+      setCommsLostState(true);
     }
 
     async function startLiveCapture() {
