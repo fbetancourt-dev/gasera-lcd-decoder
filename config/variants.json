@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "defaultVariant": "v2",
+  "variants": {
+    "v1": {
+      "id": "v1",
+      "name": "Variante 1 (Offset 3, Invertido XOR-4)",
+      "description": "Pantalla ST7565 con offset de 3 columnas y páginas entrelazadas",
+      "visibleColumnStart": 3,
+      "pageMapping": "xor-4",
+      "activeColorPreset": "Sepia Classic",
+      "colors": {
+        "foreground": "#704b25",
+        "background": "#e6c99a",
+        "majorGrid": "#a98252",
+        "minorGrid": "#ceb080"
+      }
+    },
+    "v2": {
+      "id": "v2",
+      "name": "Variante 2 (Offset 0, Lineal Identity)",
+      "description": "Pantalla ST7565 con mapeo directo de columna 0 y páginas secuenciales",
+      "visibleColumnStart": 0,
+      "pageMapping": "identity",
+      "activeColorPreset": "Black on White",
+      "colors": {
+        "foreground": "#000000",
+        "background": "#ffffff",
+        "majorGrid": "#cccccc",
+        "minorGrid": "#e5e5e5"
+      }
+    }
+  }
+}

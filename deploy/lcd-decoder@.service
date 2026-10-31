@@ -1,0 +1,14 @@
+[Unit]
+Description=LCD decoder display variant %i
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lcd-display-analyzer
+Environment=LCD_DECODER_HOST=0.0.0.0
+ExecStart=%h/lcd-display-analyzer/run_display_variant_%i.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

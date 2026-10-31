@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "activeVariant": "v2",
+  "display": {
+    "controller": "ST7565/ST7565R",
+    "controllerWidth": 132,
+    "visibleWidth": 128,
+    "height": 64,
+    "visibleColumnStart": 0,
+    "pageMapping": "identity",
+    "gridEnabled": true,
+    "fullscreenAspect": "preserve-grid",
+    "visualPadding": false,
+    "cleanUnitStyle": "lt",
+    "colors": {
+      "foreground": "#000000",
+      "background": "#ffffff",
+      "majorGrid": "#cccccc",
+      "minorGrid": "#e5e5e5"
+    },
+    "activeColorPreset": "Black on White",
+    "colorPresets": {
+      "Black on White": {
+        "foreground": "#000000",
+        "background": "#ffffff",
+        "majorGrid": "#cccccc",
+        "minorGrid": "#e5e5e5"
+      },
+      "Sepia Classic": {
+        "foreground": "#704b25",
+        "background": "#e6c99a",
+        "majorGrid": "#a98252",
+        "minorGrid": "#ceb080"
+      },
+      "Default": {
+        "foreground": "#334549",
+        "background": "#dce4d7",
+        "majorGrid": "#6c7874",
+        "minorGrid": "#b8bdb7"
+      },
+      "Red LED": {
+        "foreground": "#ff3b30",
+        "background": "#1a0808",
+        "majorGrid": "#3a1515",
+        "minorGrid": "#260e0e"
+      },
+      "Amber Terminal": {
+        "foreground": "#ff9500",
+        "background": "#1a1205",
+        "majorGrid": "#3d2b0e",
+        "minorGrid": "#291c09"
+      },
+      "OLED Cyan": {
+        "foreground": "#32ade6",
+        "background": "#05131a",
+        "majorGrid": "#0e2d3d",
+        "minorGrid": "#091e29"
+      },
+      "Matrix Green": {
+        "foreground": "#30d158",
+        "background": "#051a0b",
+        "majorGrid": "#0e3d1b",
+        "minorGrid": "#092912"
+      }
+    }
+  },
+  "capture": {
+    "defaultSampleRate": 4000000,
+    "defaultBufferSize": 512,
+    "autoReconnect": true
+  },
+  "recognition": {
+    "total": {
+      "x1": 13,
+      "y1": 5,
+      "x2": 125,
+      "y2": 32
+    },
+    "litros": {
+      "x1": 13,
+      "y1": 36,
+      "x2": 125,
+      "y2": 63
+    }
+  }
+}

@@ -1,0 +1,19 @@
+# Binaries and object files
+st7565_trace_export
+*.o
+*.so
+*.dylib
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+
+# Editor and OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.tmp

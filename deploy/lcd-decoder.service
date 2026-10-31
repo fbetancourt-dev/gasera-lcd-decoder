@@ -1,0 +1,14 @@
+[Unit]
+Description=Unified ST7565 LCD Display Analyzer Service (Gasera)
+After=network.target
+
+[Service]
+Type=simple
+User=orangepi
+WorkingDirectory=/home/orangepi/Documents/gasera-lcd-decoder
+ExecStart=/usr/bin/python3 /home/orangepi/Documents/gasera-lcd-decoder/lcd_decoder_server.py --host 0.0.0.0 --port 8081
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
