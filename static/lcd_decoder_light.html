@@ -5563,14 +5563,16 @@
       }
       $('fullscreenAspect').value = state.fullscreenAspect;
       const storedViewMode = localStorage.getItem(displayViewModeStorageKey);
-      if (['pixels', 'clean', 'split'].includes(storedViewMode)) {
-        state.displayViewMode = storedViewMode;
-      } else {
-        const storedCleanDisplayMode =
-          localStorage.getItem(cleanDisplayModeStorageKey);
-        if (storedCleanDisplayMode !== null) {
-          state.displayViewMode =
-            storedCleanDisplayMode === 'true' ? 'clean' : 'pixels';
+      if (!state.displayViewMode || state.displayViewMode === 'split') {
+        if (['pixels', 'clean', 'split'].includes(storedViewMode)) {
+          state.displayViewMode = storedViewMode;
+        } else {
+          const storedCleanDisplayMode =
+            localStorage.getItem(cleanDisplayModeStorageKey);
+          if (storedCleanDisplayMode !== null) {
+            state.displayViewMode =
+              storedCleanDisplayMode === 'true' ? 'clean' : 'pixels';
+          }
         }
       }
       const requestedView = new URLSearchParams(window.location.search).get('view');
