@@ -481,7 +481,9 @@ def save_display_colors(payload: object) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("Display colors must be a JSON object")
     colors = payload.get("colors")
-    active_preset = payload.get("activeColorPreset")
+    active_preset = payload.get("activeColorPreset") or payload.get("activePreset")
+    clean_unit = payload.get("cleanUnitStyle")
+    display_view_mode = payload.get("displayViewMode")
     with SETTINGS_LOCK:
         settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
         display = settings.setdefault("display", {})
@@ -489,6 +491,10 @@ def save_display_colors(payload: object) -> dict:
             display["colors"] = colors
         if isinstance(active_preset, str) and active_preset:
             display["activeColorPreset"] = active_preset
+        if isinstance(clean_unit, str) and clean_unit:
+            display["cleanUnitStyle"] = clean_unit
+        if isinstance(display_view_mode, str) and display_view_mode in ("pixels", "clean", "split"):
+            display["displayViewMode"] = display_view_mode
         SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
     return {"success": True, "display": display}
 

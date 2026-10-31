@@ -147,6 +147,7 @@
       cursor: pointer;
     }
     .lcd-scroll {
+      position: relative;
       min-height: 280px;
       overflow: auto;
       border: 1px solid var(--line);
@@ -355,49 +356,92 @@
       opacity: 0.9;
     }
     .comms-lost-overlay {
+      position: absolute !important;
+      inset: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      background: rgba(11, 14, 18, 0.95) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      z-index: 1000 !important;
+      backdrop-filter: blur(8px);
+      box-sizing: border-box !important;
+    }
+    body.mode-fullscreen .comms-lost-overlay,
+    body.mode-clean .comms-lost-overlay,
+    body.mode-split .comms-lost-overlay,
+    .lcd-scroll:fullscreen .comms-lost-overlay {
       position: fixed !important;
       inset: 0 !important;
       width: 100vw !important;
       height: 100vh !important;
-      background: rgba(11, 14, 18, 0.96) !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
       z-index: 99999999 !important;
-      backdrop-filter: blur(8px);
-      box-sizing: border-box !important;
     }
     .comms-lost-card {
       background: #191012;
-      border: 5px solid #ef4444;
-      border-radius: 32px;
-      padding: 60px 70px;
+      border: 3px solid #ef4444;
+      border-radius: 20px;
+      padding: 24px 32px;
       text-align: center;
-      box-shadow: 0 0 70px rgba(239, 68, 68, 0.75);
+      box-shadow: 0 0 45px rgba(239, 68, 68, 0.65);
       animation: comms-pulse 1.8s infinite ease-in-out;
-      width: 92vw;
-      max-width: 1400px;
+      width: 90%;
+      max-width: 800px;
       box-sizing: border-box;
     }
+    body.mode-fullscreen .comms-lost-card,
+    body.mode-clean .comms-lost-card,
+    body.mode-split .comms-lost-card,
+    .lcd-scroll:fullscreen .comms-lost-card {
+      border-width: 5px;
+      border-radius: 32px;
+      padding: 60px 70px;
+      box-shadow: 0 0 70px rgba(239, 68, 68, 0.75);
+      width: 92vw;
+      max-width: 1400px;
+    }
     .comms-lost-icon {
-      font-size: 96px;
-      margin-bottom: 24px;
+      font-size: 56px;
+      margin-bottom: 12px;
       line-height: 1;
     }
+    body.mode-fullscreen .comms-lost-icon,
+    body.mode-clean .comms-lost-icon,
+    body.mode-split .comms-lost-icon,
+    .lcd-scroll:fullscreen .comms-lost-icon {
+      font-size: 96px;
+      margin-bottom: 24px;
+    }
     .comms-lost-title {
-      font-size: clamp(36px, 5.5vw, 64px);
+      font-size: clamp(22px, 3.2vw, 36px);
       font-weight: 900;
       color: #ef4444;
       text-transform: uppercase;
+      letter-spacing: 1.5px;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    body.mode-fullscreen .comms-lost-title,
+    body.mode-clean .comms-lost-title,
+    body.mode-split .comms-lost-title,
+    .lcd-scroll:fullscreen .comms-lost-title {
+      font-size: clamp(36px, 5.5vw, 64px);
       letter-spacing: 2px;
       line-height: 1.15;
       margin-bottom: 20px;
     }
     .comms-lost-desc {
-      font-size: clamp(20px, 2.8vw, 32px);
+      font-size: clamp(15px, 1.8vw, 20px);
       font-weight: 600;
       color: #fca5a5;
       opacity: 0.95;
+    }
+    body.mode-fullscreen .comms-lost-desc,
+    body.mode-clean .comms-lost-desc,
+    body.mode-split .comms-lost-desc,
+    .lcd-scroll:fullscreen .comms-lost-desc {
+      font-size: clamp(20px, 2.8vw, 32px);
     }
     .lcd-scroll.clean-mode {
       overflow: auto;
@@ -1070,13 +1114,12 @@
               </div>
             </div>
           </div>
-        </div>
-
-        <div class="comms-lost-overlay" id="globalCommsOverlay" hidden>
-          <div class="comms-lost-card">
-            <div class="comms-lost-icon">⚠️</div>
-            <div class="comms-lost-title">Por favor verifique conexión con el display</div>
-            <div class="comms-lost-desc" id="globalWarningDesc">Analizador lógico desconectado o sin señal</div>
+          <div class="comms-lost-overlay" id="globalCommsOverlay" hidden>
+            <div class="comms-lost-card">
+              <div class="comms-lost-icon">⚠️</div>
+              <div class="comms-lost-title">Por favor verifique conexión con el display</div>
+              <div class="comms-lost-desc" id="globalWarningDesc">Analizador lógico desconectado o sin señal</div>
+            </div>
           </div>
         </div>
 
@@ -1525,6 +1568,10 @@
       commsLost: false,
       commsLostStartTime: 0,
       commsLostReason: '',
+      lastCommsReasonChangeTime: 0,
+      currentCommsReason: '',
+      pendingCommsReason: '',
+      commsReasonHoldTimer: null,
       lastLiveTrafficTime: 0,
       lastValidDecodedTime: 0,
       visualPadding: false,
@@ -1892,6 +1939,11 @@
           settings.display?.cleanUnitStyle
         )) {
           state.cleanUnitStyle = settings.display.cleanUnitStyle;
+        }
+        if (['pixels', 'clean', 'split'].includes(
+          settings.display?.displayViewMode
+        )) {
+          state.displayViewMode = settings.display.displayViewMode;
         }
         $('grid').textContent = `Grid: ${state.grid ? 'on' : 'off'}`;
         state.settingsLoaded = true;
@@ -2960,16 +3012,47 @@
           state.commsLost = true;
           state.commsLostStartTime = now;
         }
-        state.commsLostReason = reason || state.commsLostReason || 'Sin señal del display';
 
-        if (globalDesc) globalDesc.textContent = state.commsLostReason;
+        const targetReason = reason || state.commsLostReason || 'Sin señal del display';
+
+        const applyReason = (r) => {
+          state.commsLostReason = r;
+          state.currentCommsReason = r;
+          state.lastCommsReasonChangeTime = Date.now();
+          if (globalDesc) globalDesc.textContent = r;
+          $('comparisonStatus').textContent = `⚠️ Por favor verifique conexión con el display (${r})`;
+        };
+
+        if (!state.currentCommsReason) {
+          applyReason(targetReason);
+        } else if (state.currentCommsReason !== targetReason) {
+          const elapsed = now - state.lastCommsReasonChangeTime;
+          if (elapsed >= 2000) {
+            if (state.commsReasonHoldTimer) {
+              clearTimeout(state.commsReasonHoldTimer);
+              state.commsReasonHoldTimer = null;
+            }
+            applyReason(targetReason);
+          } else {
+            state.pendingCommsReason = targetReason;
+            if (!state.commsReasonHoldTimer) {
+              state.commsReasonHoldTimer = setTimeout(() => {
+                state.commsReasonHoldTimer = null;
+                if (state.commsLost && state.pendingCommsReason) {
+                  applyReason(state.pendingCommsReason);
+                  state.pendingCommsReason = '';
+                }
+              }, 2000 - elapsed);
+            }
+          }
+        }
+
         if (globalOverlay) globalOverlay.hidden = false;
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
         state.cleanRows = ['—', '—'];
         $('cleanRow1').textContent = '—';
         $('cleanRow2').textContent = '—';
-        $('comparisonStatus').textContent = `⚠️ Por favor verifique conexión con el display (${state.commsLostReason})`;
       } else {
         // Cannot clear if hardware is not connected or capture is not running
         if (!state.liveDeviceAvailable || !state.liveRunning) {
@@ -2979,6 +3062,12 @@
         state.commsLost = false;
         state.commsLostStartTime = 0;
         state.commsLostReason = '';
+        state.currentCommsReason = '';
+        state.pendingCommsReason = '';
+        if (state.commsReasonHoldTimer) {
+          clearTimeout(state.commsReasonHoldTimer);
+          state.commsReasonHoldTimer = null;
+        }
         if (globalOverlay) globalOverlay.hidden = true;
         if (row1Container) row1Container.hidden = false;
         if (row2Container) row2Container.hidden = false;
@@ -3033,6 +3122,7 @@
         'aria-pressed', String(mode !== 'pixels'));
       if (persist) {
         localStorage.setItem(displayViewModeStorageKey, mode);
+        persistColorPresets(true);
       }
       renderCleanDisplay();
       resizeDisplayForFullscreen();
@@ -3084,6 +3174,7 @@
           presets: state.colorPresets,
           activePreset: state.activeColorPreset,
           cleanUnitStyle: state.cleanUnitStyle,
+          displayViewMode: state.displayViewMode,
         }),
       }).catch(() => {
         // Browser persistence remains available until the server is restarted.
@@ -3212,24 +3303,22 @@
     }
 
     async function toggleDisplayFullscreen() {
-      const isCleanOrFs = state.displayViewMode === 'clean' ||
-        document.body.classList.contains('mode-clean') ||
-        document.body.classList.contains('mode-fullscreen') ||
+      const isFullscreen = document.body.classList.contains('mode-fullscreen') ||
         Boolean(document.fullscreenElement);
 
-      if (isCleanOrFs) {
+      if (isFullscreen) {
         if (document.fullscreenElement) {
           await document.exitFullscreen().catch(() => {});
         }
         document.body.classList.remove('mode-fullscreen');
-        setDisplayViewMode('split');
+        resizeDisplayForFullscreen();
       } else {
         const lcdScroll = $('lcdScroll');
         if (document.fullscreenEnabled && lcdScroll) {
           await lcdScroll.requestFullscreen().catch(() => {});
         }
         document.body.classList.add('mode-fullscreen');
-        setDisplayViewMode('clean');
+        resizeDisplayForFullscreen();
       }
     }
 
