@@ -630,19 +630,13 @@
       color: #000000;
       font-family: 'Ubuntu', 'Ubuntu Sans', sans-serif;
     }
-    .clean-placeholder-line {
-      display: inline-flex;
-      justify-content: flex-end;
-      align-items: center;
-      gap: clamp(14px, 2cqw, 28px);
-      height: 100%;
-    }
-    .clean-placeholder-line span {
+    .clean-placeholder-bar {
       display: inline-block;
-      width: clamp(55px, 7.5cqw, 105px);
-      height: clamp(14px, 2.5cqh, 22px);
+      width: clamp(350px, 48cqw, 750px);
+      height: clamp(26px, 4.2cqh, 44px);
       background: #000000;
       border-radius: 4px;
+      vertical-align: middle;
     }
     body.mode-fullscreen .clean-display,
     .lcd-scroll:fullscreen .clean-display {
@@ -1164,11 +1158,11 @@
             <div class="clean-display" id="cleanDisplay" aria-label="Clean recognized display" hidden>
               <div class="clean-row" id="cleanRowContainer1">
                 <span class="clean-marker">$</span>
-                <span class="clean-value" id="cleanRow1">___</span>
+                <span class="clean-value" id="cleanRow1"><div class="clean-placeholder-bar"></div></span>
               </div>
               <div class="clean-row" id="cleanRowContainer2">
                 <span class="clean-marker" id="cleanUnitMarker">Lt</span>
-                <span class="clean-value" id="cleanRow2">___</span>
+                <span class="clean-value" id="cleanRow2"><div class="clean-placeholder-bar"></div></span>
               </div>
             </div>
           </div>
@@ -3082,12 +3076,9 @@
 
       const renderBarPlaceholder = (element) => {
         element.replaceChildren();
-        const wrapper = document.createElement('div');
-        wrapper.className = 'clean-placeholder-line';
-        wrapper.appendChild(document.createElement('span'));
-        wrapper.appendChild(document.createElement('span'));
-        wrapper.appendChild(document.createElement('span'));
-        element.appendChild(wrapper);
+        const bar = document.createElement('div');
+        bar.className = 'clean-placeholder-bar';
+        element.appendChild(bar);
       };
 
       if (state.commsLost) {
