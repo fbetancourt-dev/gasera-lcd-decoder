@@ -13,7 +13,7 @@ fi
 KERNEL="$SCRIPT_DIR/noble-server-cloudimg-arm64-vmlinuz-generic"
 INITRD="$SCRIPT_DIR/noble-server-cloudimg-arm64-initrd-generic"
 OVERLAY="$SCRIPT_DIR/pegasus_qemu_overlay.qcow2"
-BASE_IMG="/home/fbetancourt/Desktop/Monitor para Gasera Pegasus/pegasus_display_v2.img"
+BASE_IMG="/home/fbetancourt/Desktop/Monitor para Gasera Pegasus/pegasus_display_v3.img"
 
 echo "======================================================================"
 echo "  EMULADOR QEMU - ORANGE PI ZERO 2W (GASERA PEGASUS)"
@@ -44,12 +44,11 @@ exec "$QEMU_BIN" \
     -m 2048M \
     -kernel "$KERNEL" \
     -initrd "$INITRD" \
-    -append "root=UUID=e0657b8f-0b3a-45cb-9544-9aaf244c21e4 rw console=ttyAMA0 console=tty1 splash" \
+    -append "root=/dev/vda1 rw console=tty1 console=ttyAMA0 apparmor=0" \
     -drive file="$OVERLAY",format=qcow2,if=none,id=hd0 \
     -device virtio-blk-pci,drive=hd0 \
+    -device ramfb \
     -device virtio-gpu-pci \
     -device virtio-keyboard-pci \
     -device virtio-tablet-pci \
-    -netdev user,id=net0,hostfwd=tcp::8082-:8081 \
-    -device virtio-net-pci,netdev=net0 \
     -display gtk
