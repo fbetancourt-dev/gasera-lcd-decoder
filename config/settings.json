@@ -91,26 +91,26 @@
     ],
     "defaultRowGap": 4,
     "screenGuard": {
-      "enabled": false,
-      "matchPercent": 100.0,
+      "enabled": true,
+      "matchPercent": 90.0,
       "markers": [
         {
           "template": "$",
-          "matchPercent": 100.0,
+          "matchPercent": 90.0,
           "rect": {
             "x1": 0,
             "y1": 0,
-            "x2": 19,
+            "x2": 17,
             "y2": 31
           }
         },
         {
           "template": "Lt",
-          "matchPercent": 100.0,
+          "matchPercent": 90.0,
           "rect": {
             "x1": 0,
             "y1": 32,
-            "x2": 19,
+            "x2": 17,
             "y2": 59
           }
         }
