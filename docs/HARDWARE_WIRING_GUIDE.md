@@ -1,13 +1,35 @@
 # Guía de Cableado de Hardware, Arnés e Integración SPI
 ## Dispensador Gasera Pegasus & Decodificador ST7565 (Orange Pi Zero 2W)
 
-Esta guía documenta la conexión física de señales, el pinout verificado de la placa CPU Pegasus, la correspondencia exacta con el decodificador de software y las especificaciones técnicas para la fabricación de arneses y cableados en campo.
+Esta guía documenta la arquitectura física, la conexión de señales, el pinout verificado de la placa CPU Pegasus, la correspondencia exacta con el decodificador de software y las especificaciones técnicas para la fabricación de arneses y montaje en campo.
 
 ---
 
-## 📸 1. Referencia Fotográfica de Soldadura en PCB
+## 📸 1. Galería Fotográfica de Instalación Real en Campo
 
-En la placa receptora del display de la gasera (**Pegasus 5505 Reg CPU 1v5 / Hecho en México**), las señales se toman directamente del bus del conector del display LCD ST7565:
+### A. Vista del Gabinete y Entorno Industrial
+El dispensador Gasera Pegasus alberga la placa controladora CPU/Display dentro del chasis metálico estanco:
+
+![Instalación en Gabinete Gasera Pegasus](images/pegasus_installation_cabinet.jpg)
+
+---
+
+### B. Placa CPU Pegasus (5505 Reg CPU 1v5 / Hecho en México)
+La tarjeta principal cuenta con el conector de 16 pines del display LCD en el lateral izquierdo inferior:
+
+![Placa CPU Gasera Pegasus](images/pegasus_pcb_overview.jpg)
+
+---
+
+### C. Arnés Ensamblado y Ruteo de Señales
+El arnés de 5 líneas digitales ruteado hacia el analizador lógico con aislamiento térmico y alivio de tensión:
+
+![Arnés de Cableado Ensamblado](images/pegasus_display_wiring_harness.jpg)
+
+---
+
+### D. Punto de Soldadura en los Pines del Conector LCD (Macro)
+En la placa receptora del display, las señales se toman directamente de los pines del bus ST7565:
 
 ![Soldadura de Cableado en Placa Gasera Pegasus](images/gasera_pegasus_display_pcb_wiring.jpg)
 
@@ -20,53 +42,98 @@ En la placa receptora del display de la gasera (**Pegasus 5505 Reg CPU 1v5 / Hec
 
 ---
 
-## ⚡ 2. Mapeo Oficial de Señales: Hardware vs. Software
+## 🔌 2. Conector del Analizador Lógico (Saleae 8CH 24MHz)
+
+El analizador digital USB cuenta con un conector macho de 2x5 pines (paso 2.54 mm) con muesca de orientación:
+
+| Vista Frontal del Conector (Muesca hacia arriba) | Dispositivo Analizador USB |
+| :---: | :---: |
+| ![Pinout Frontal Analizador](images/logic_analyzer_pinout_front.jpg) | ![Analizador Lógico Saleae 8CH](images/logic_analyzer_device.jpg) |
+
+### Disposición de Pines del Conector 2x5 IDC:
+```text
+               [ MUESCA DE POLARIZACIÓN ]
+         (Fila Frontal)  CH1   CH3   CH5   CH7   GND
+                         [1]   [3]   [5]   [7]   [9]
+                         [2]   [4]   [6]   [8]  [10]
+         (Fila Trasera)  CH2   CH4   CH6   CH8   GND
+```
+
+---
+
+## ⚡ 3. Mapeo Oficial de Señales: Hardware vs. Software
 
 > ⚠️ **Nota Histórica / Corrección respecto a Documentación Externa Previa:**
-> En documentos de integración previos elaborados por terceros (como la nota técnica de Septiembre 2026), se registraron correctamente los colores de cable y los pines físicos de la placa Pegasus, pero al **no disponer del código fuente del decodificador**, los autores desconocían la función técnica de cada línea y las catalogaron genéricamente como *"Canal 0 (Señal Digital)"*, *"Canal 1"*, *"Canal 2"*, etc.
+> En notas técnicas previas elaboradas por terceros (Septiembre 2026), se anotaron correctamente los colores de cable y los pines físicos de la placa Pegasus, pero al **no disponer del código fuente del decodificador**, los autores desconocían la función técnica de cada línea y las catalogaron genéricamente como *"Canal 0 (Señal Digital)"*, *"Canal 1"*, *"Canal 2"*, etc.
 > 
 > A continuación se presenta el **mapeo técnico 100% verificado y validado** directamente contra el motor decodificador en C (`st7565_trace_export.c`) y la captura de `sigrok-cli`:
 
 | Pin PCB Pegasus | Color Cable | Conector IDC Analizador Lógico | Canal Lógico | Bit Decoder (`sample >> n`) | Señal Real ST7565 SPI | Función Técnica y Comportamiento |
 | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Pin 1** | **Blanco** | Columna 5 - Trasera (Plano) | **GND** | N/A | **GND** | Referencia común de 0V (Tierra digital). |
-| **Pin 11** | **Negro** | Columna 1 - Frontal (Muesca) | **CH1 (ch0 / D0)** | `bit 0` | **/CS (Chip Select)** | Activo en **BAJO (0)**. Habilita la recepción de bytes en el controlador ST7565. En ALTO (1), el bus queda en reposo. |
-| **Pin 12** | **Marrón** | Columna 1 - Trasera (Plano) | **CH2 (ch1 / D1)** | `bit 1` | **SCLK (Serial Clock)** | Reloj síncrono serie (**~1.67 a 2.0 MHz**). El decodificador muestrea cada bit de datos en el flanco de subida (`previous_clk == 0 && clk == 1`). |
-| **Pin 13** | **Rojo** | Columna 2 - Frontal (Muesca) | **CH3 (ch2 / D2)** | `bit 2` | **MOSI / SI (Serial In)** | Flujo de datos serie (Master Out -> Display In). Se desplaza con MSB primero (`byte = (byte << 1) \| bit2`). |
-| **Pin 14** | **Naranja** | Columna 2 - Trasera (Plano) | **CH4 (ch3 / D3)** | `bit 3` | **A0 / D/C (Data / Command)** | Selector de modo: **0 = Comando** (Set Page `0xB0..0xB7`, Set Column, Reset, etc.); **1 = Datos** (escritura directa a la VRAM del LCD). |
+| **Pin 1** | **Blanco** | Columna 5 - Trasera (Pin 10) | **GND** | N/A | **GND** | Referencia común de 0V (Tierra digital). |
+| **Pin 11** | **Negro** | Columna 1 - Frontal (Pin 1) | **CH1 (ch0 / D0)** | `bit 0` | **/CS (Chip Select)** | Activo en **BAJO (0)**. Habilita la recepción de bytes en el controlador ST7565. En ALTO (1), el bus queda en reposo. |
+| **Pin 12** | **Marrón** | Columna 1 - Trasera (Pin 2) | **CH2 (ch1 / D1)** | `bit 1` | **SCLK (Serial Clock)** | Reloj síncrono serie (**~1.67 a 2.0 MHz**). El decodificador muestrea cada bit de datos en el flanco de subida (`previous_clk == 0 && clk == 1`). |
+| **Pin 13** | **Rojo** | Columna 2 - Frontal (Pin 3) | **CH3 (ch2 / D2)** | `bit 2` | **MOSI / SI (Serial In)** | Flujo de datos serie (Master Out -> Display In). Se desplaza con MSB primero (`byte = (byte << 1) \| bit2`). |
+| **Pin 14** | **Naranja** | Columna 2 - Trasera (Pin 4) | **CH4 (ch3 / D3)** | `bit 3` | **A0 / D/C (Data / Command)** | Selector de modo: **0 = Comando** (Set Page `0xB0..0xB7`, Set Column, Reset, etc.); **1 = Datos** (escritura directa a la VRAM del LCD). |
 
 ---
 
-## 📐 3. Diagrama Esquemático de Conexión
+## 📐 4. Diagrama Esquemático y Flujo de Datos
 
-```
-Placa Gasera Pegasus (5505 Reg CPU 1v5)             Analizador Lógico USB 8CH (24 MHz)
-+------------------------------------+             +----------------------------------+
-|                                    |             | Conector Macho 2x5 IDC (Vista)   |
-|  [Pin 1]  (GND)      ------------ (Blanco) ----->| [GND]       (Pin 10 / Col 5 Trasera)
-|  [Pin 11] (/CS)      ------------ (Negro) ------>| [CH1 / D0]  (Pin 1  / Col 1 Frontal) 
-|  [Pin 12] (SCLK)     ------------ (Marron) ----->| [CH2 / D1]  (Pin 2  / Col 1 Trasera) 
-|  [Pin 13] (MOSI/SI)  ------------ (Rojo) ------->| [CH3 / D2]  (Pin 3  / Col 2 Frontal) 
-|  [Pin 14] (A0/DC)    ------------ (Naranja) ---->| [CH4 / D3]  (Pin 4  / Col 2 Trasera) 
-+------------------------------------+             +----------------------------------+
-                                                                   |
-                                                            (Cable Mini-USB)
-                                                                   v
-                                                    +----------------------------------+
-                                                    | HUB Sabrent USB / Ethernet       |
-                                                    +----------------------------------+
-                                                                   |
-                                                            (Conexión Host)
-                                                                   v
-                                                    +----------------------------------+
-                                                    | Orange Pi Zero 2W (Allwinner H618|
-                                                    | Ubuntu Linux 6.1 XFCE / Python3) |
-                                                    +----------------------------------+
+```mermaid
+flowchart TD
+    subgraph CPU_GASERA ["Placa CPU / Display Gasera Pegasus (5505 Reg CPU 1v5)"]
+        PIN1["Pin 1: Tierra GND (Cable Blanco)"]
+        PIN11["Pin 11: /CS Chip Select (Cable Negro)"]
+        PIN12["Pin 12: SCLK Reloj Serie ~2MHz (Cable Marrón)"]
+        PIN13["Pin 13: MOSI Datos Serie SI (Cable Rojo)"]
+        PIN14["Pin 14: A0 Modo Comando/Datos (Cable Naranja)"]
+    end
+
+    subgraph ARNES ["Arnés de 5 Hilos con Alivio Mecánico"]
+        W_GND["GND (0V)"]
+        W_CS["/CS Activo Bajo"]
+        W_CLK["SCLK (500 ns/ciclo)"]
+        W_MOSI["MOSI (MSB first)"]
+        W_DC["A0 (0=Cmd, 1=VRAM)"]
+    end
+
+    subgraph LOGIC_ANALYZER ["Analizador Lógico USB 8CH (Cypress FX2 / 24MHz)"]
+        CH_GND["Pin 10: GND"]
+        CH0["Pin 1: CH1 (D0)"]
+        CH1_P["Pin 2: CH2 (D1)"]
+        CH2_P["Pin 3: CH3 (D2)"]
+        CH3_P["Pin 4: CH4 (D3)"]
+    end
+
+    subgraph USB_HUB ["HUB Sabrent USB / Ethernet"]
+        HUB["HUB Sabrent con alimentación"]
+    end
+
+    subgraph ORANGE_PI ["Orange Pi Zero 2W (Allwinner H618 / 1.5GB RAM)"]
+        SIGROK["sigrok-cli (driver fx2lafw @ 4.0 MHz)"]
+        C_DECODER["st7565_trace_export (Decodificador C)"]
+        PY_SERVER["lcd_decoder_server.py (Daemon / Replay / WebSocket)"]
+        WEB_UI["UI Web Kiosk: lcd_decoder_light.html ($ Total + Litros)"]
+    end
+
+    PIN1 --> W_GND --> CH_GND
+    PIN11 --> W_CS --> CH0
+    PIN12 --> W_CLK --> CH1_P
+    PIN13 --> W_MOSI --> CH2_P
+    PIN14 --> W_DC --> CH3_P
+
+    LOGIC_ANALYZER -->|Cable USB| HUB
+    HUB -->|USB-C OTG| ORANGE_PI
+
+    SIGROK -->|Flujo binario continuo| C_DECODER
+    C_DECODER -->|Eventos de display E sample dc val page col| PY_SERVER
+    PY_SERVER -->|API / SSE / WebSocket| WEB_UI
 ```
 
 ---
 
-## 🛠️ 4. Guía de Fabricación de Arneses y Cableado Industrial
+## 🛠️ 5. Guía de Fabricación de Arneses y Cableado Industrial
 
 Para garantizar máxima estabilidad y durabilidad en el entorno hostil de una estación de gas (donde existen motores de bombeo trifásicos, vibraciones y pulsos electromagnéticos por solenoides):
 
@@ -90,7 +157,7 @@ $$\text{GND} \;\;|\;\; \text{/CS (Pin 11)} \;\;|\;\; \text{GND} \;\;|\;\; \text{
 
 ---
 
-## 🔍 5. Verificación de Funcionamiento tras el Cableado
+## 🔍 6. Verificación de Funcionamiento tras el Cableado
 
 Una vez instalado el arnés y conectado el analizador USB al SBC:
 
