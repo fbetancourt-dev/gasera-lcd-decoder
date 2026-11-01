@@ -4,17 +4,19 @@ This document describes the complete deployment, autostart, kiosk fullscreen, an
 
 ---
 
-## 📌 1. Physical Probe Wiring Reference
+## 📌 1. Physical Probe & PCB Wiring Reference
 
-Connect the Saleae Logic 8-channel USB logic analyzer to the ST7565 display bus as follows:
+Connect the Saleae Logic 8-channel USB logic analyzer to the ST7565 display bus on the Pegasus CPU/Display board (**5505 Reg CPU 1v5**) as follows:
 
-| Saleae Logic Channel | LCD Signal | Description |
-| --- | --- | --- |
-| **D0** | **/CS** | Active-low Chip Select |
-| **D1** | **SCLK** | Serial Clock |
-| **D2** | **MOSI / SI** | Serial Display Data |
-| **D3** | **A0 / D-C** | Command (0) / Data (1) Selection |
-| **GND** | **GND** | Shared Reference Ground |
+| PCB Pin (Pegasus) | Wire Color | Logic Analyzer Channel | LCD Signal | Description |
+| :---: | :---: | :---: | :---: | --- |
+| **Pin 1** | **White** | **GND** | **GND** | Shared Reference Ground (0V) |
+| **Pin 11** | **Black** | **D0 (CH1 / ch0)** | **/CS** | Active-low Chip Select |
+| **Pin 12** | **Brown** | **D1 (CH2 / ch1)** | **SCLK** | Serial Clock (~1.67–2.0 MHz) |
+| **Pin 13** | **Red** | **D2 (CH3 / ch2)** | **MOSI / SI** | Serial Display Data (Master Out -> LCD) |
+| **Pin 14** | **Orange** | **D3 (CH4 / ch3)** | **A0 / D-C** | Command (0) / Data (1) Selection |
+
+*(For full wiring diagrams, PCB solder photos, and harness fabrication specs, see [`docs/HARDWARE_WIRING_GUIDE.md`](HARDWARE_WIRING_GUIDE.md)).*
 
 ---
 

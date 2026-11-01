@@ -110,15 +110,20 @@ Para instalaciones donde el decodificador o pantalla auxiliar deba ubicarse lejo
 
 ---
 
-## 🔌 Asignación de Canales de Sonda (Saleae Logic 8CH)
+## 🔌 Asignación de Canales de Sonda y Cableado PCB (Placa Pegasus)
 
-| Canal Saleae | Señal LCD | Función |
-| --- | --- | --- |
-| **D0** | **/CS** | Chip Select (Activo en bajo) |
-| **D1** | **SCLK** | Serial Clock (~2 MHz) |
-| **D2** | **MOSI / SI** | Datos serie del display |
-| **D3** | **A0 / D-C** | Comando (0) / Datos (1) |
-| **GND** | **GND** | Tierra de referencia común |
+Las señales se conectan directamente desde el conector del display en la placa CPU Pegasus (**5505 Reg CPU 1v5**) hacia el conector IDC del analizador lógico USB de 8 canales:
+
+| Pin PCB Pegasus | Color Cable | Canal Saleae (SW / HW) | Señal Real ST7565 SPI | Función y Comportamiento |
+| :---: | :---: | :---: | :---: | :--- |
+| **Pin 1** | **Blanco** | **GND** | **GND** | Referencia de Tierra común (0V) |
+| **Pin 11** | **Negro** | **D0 (CH1 / ch0)** | **/CS** | Chip Select (Activo en BAJO) |
+| **Pin 12** | **Marrón** | **D1 (CH2 / ch1)** | **SCLK** | Serial Clock (~1.67–2.0 MHz) |
+| **Pin 13** | **Rojo** | **D2 (CH3 / ch2)** | **MOSI / SI** | Datos serie de display (Master Out -> LCD) |
+| **Pin 14** | **Naranja** | **D3 (CH4 / ch3)** | **A0 / D-C** | Selección: 0 = Comando / 1 = Datos VRAM |
+
+> 📖 **Guía Completa de Fabricación de Arneses y Fotos:**
+> Consulta la [**Guía Detallada de Cableado y Arneses (`docs/HARDWARE_WIRING_GUIDE.md`)**](docs/HARDWARE_WIRING_GUIDE.md) para ver la fotografía de soldadura en PCB, especificaciones de cables AWG, inmunidad a ruido EMI y recomendaciones mecánicas.
 
 ---
 
