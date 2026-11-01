@@ -595,6 +595,9 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(html_path.stat().st_size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self.end_headers()
                 with html_path.open("rb") as f:
                     shutil.copyfileobj(f, self.wfile)
@@ -605,6 +608,9 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(js_path.stat().st_size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self.end_headers()
                 with js_path.open("rb") as f:
                     shutil.copyfileobj(f, self.wfile)
@@ -615,6 +621,9 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/javascript; charset=utf-8")
                 self.send_header("Content-Length", str(js_path.stat().st_size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self.end_headers()
                 with js_path.open("rb") as f:
                     shutil.copyfileobj(f, self.wfile)

@@ -2855,14 +2855,14 @@
           return;
         }
 
-        // Evaluar reconocimiento en el framebuffer actual
-        if (!state.liveRenderPending) {
-          runRecognitionEvaluation();
-        }
-
         // Con el analizador presente, retirar la alerta de desconexión si estaba activa
         if (state.commsLost) {
           setCommsLostState(false);
+        }
+
+        // Evaluar reconocimiento en el framebuffer actual
+        if (!state.liveRenderPending) {
+          runRecognitionEvaluation();
         }
       }, 500);
     }
@@ -3001,6 +3001,7 @@
         if (!state.liveDeviceAvailable) {
           return;
         }
+        if (globalOverlay) globalOverlay.hidden = true;
         if (!state.commsLost) return;
         state.commsLost = false;
         state.commsLostStartTime = 0;
@@ -3011,7 +3012,6 @@
           clearTimeout(state.commsReasonHoldTimer);
           state.commsReasonHoldTimer = null;
         }
-        if (globalOverlay) globalOverlay.hidden = true;
         if (row1Container) row1Container.hidden = false;
         if (row2Container) row2Container.hidden = false;
         renderCleanDisplay();
@@ -3976,6 +3976,11 @@
         );
         if (preferred) $('liveDriver').value = preferred.driver;
         state.liveDeviceAvailable = hardware.length > 0;
+        if (state.liveDeviceAvailable) {
+          setCommsLostState(false);
+        } else {
+          setCommsLostState(true, 'Analizador lógico no conectado');
+        }
         $('liveDriver').disabled = !state.liveDeviceAvailable || state.liveRunning;
         $('liveStart').disabled = !state.liveDeviceAvailable || state.liveRunning;
         $('liveStatus').textContent = state.liveDeviceAvailable
@@ -3983,6 +3988,7 @@
           : 'Live: analyzer not connected';
       } catch (error) {
         state.liveDeviceAvailable = false;
+        setCommsLostState(true, 'Analizador lógico no conectado');
         $('liveDriver').innerHTML = '<option value="">Device scan failed</option>';
         $('liveStatus').textContent = `Live scan error: ${error.message}`;
       } finally {
