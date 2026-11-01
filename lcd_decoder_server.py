@@ -300,61 +300,86 @@ class LiveCapture:
         capture: subprocess.Popen,
     ) -> None:
         assert decoder.stdout is not None
-        for raw_line in decoder.stdout:
-            line = raw_line.strip()
-            if not line:
-                continue
-            if line.startswith("#"):
-                self._handle_metadata(line)
-                continue
-            parts = line.split(",")
-            if len(parts) != 7:
-                continue
-            try:
-                kind, sample, sample_end, page, column, value, flags = (
-                    int(parts[0]),
-                    int(parts[1]),
-                    int(parts[2]),
-                    int(parts[3]),
-                    int(parts[4]),
-                    int(parts[5]),
-                    int(parts[6]),
-                )
-            except ValueError:
-                continue
-            event = {
-                "kind": kind,
-                "sample": sample,
-                "sampleEnd": sample_end,
-                "page": page,
-                "column": column,
-                "value": value,
-                "flags": flags,
-            }
-            if kind == 0:
-                event["name"] = live_command_name(value)
+        try:
+            for raw_line in decoder.stdout:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                fields = line.split()
+                if not fields:
+                    continue
+                if fields[0] == "X" and len(fields) == 3:
+                    with self.lock:
+                        self.invalid_frames += int(fields[1])
+                        self.ignored_bytes += int(fields[2])
+                    continue
+                if fields[0] == "U" and len(fields) == 2:
+                    with self.lock:
+                        self.ignored_bytes += 1
+                        self.unknown_commands += 1
+                    continue
+                if fields[0] == "P" and len(fields) in (2, 5):
+                    with self.lock:
+                        self.samples_received = int(fields[1])
+                        if len(fields) == 5:
+                            self.invalid_frames = int(fields[2])
+                            self.ignored_bytes = int(fields[3])
+                            self.unknown_commands = int(fields[4])
+                        self._notify()
+                    continue
+                if fields[0] == "S" and len(fields) == 8:
+                    with self.lock:
+                        self.samples_received = int(fields[1])
+                        self.events_received = int(fields[2])
+                        self.commands = int(fields[3])
+                        self.data = int(fields[4])
+                        self.invalid_frames = int(fields[5])
+                        self.ignored_bytes = int(fields[6])
+                        self.unknown_commands = int(fields[7])
+                        self._notify()
+                    continue
+                if fields[0] != "E" or len(fields) != 6:
+                    continue
+                try:
+                    sample, dc, value, page, column = map(int, fields[1:])
+                except ValueError:
+                    continue
+
+                event = {
+                    "sample": sample,
+                    "sampleEnd": sample,
+                    "dc": dc,
+                    "kind": dc,
+                    "value": value,
+                    "page": page,
+                    "column": column,
+                    "label": "Data" if dc else live_command_name(value),
+                    "name": live_command_name(value) if not dc else "Data",
+                    "flags": 0,
+                }
+                with self.lock:
+                    if self.decoder is not decoder:
+                        return
+                    self.sequence += 1
+                    event["seq"] = self.sequence
+                    if len(self.events) >= self.events.maxlen:
+                        oldest = self.events.popleft()
+                        self._apply_event_to_framebuffer(
+                            self.buffer_base_framebuffer, oldest)
+                    self.events.append(event)
+                    self.events_received += 1
+                    self.samples_received = max(self.samples_received, sample)
+                    if dc == 1:
+                        self.data += 1
+                    elif dc == 0:
+                        self.commands += 1
+                    self._apply_event_to_framebuffer(self.framebuffer, event)
+                    self._notify()
+        finally:
             with self.lock:
-                if self.decoder is not decoder:
-                    return
-                self.sequence += 1
-                event["seq"] = self.sequence
-                if len(self.events) == self.events.maxlen:
-                    oldest = self.events[0]
-                    self._apply_event_to_framebuffer(
-                        self.buffer_base_framebuffer, oldest)
-                self.events.append(event)
-                self.events_received += 1
-                self.samples_received = max(self.samples_received, sample_end)
-                if kind == 1:
-                    self.data += 1
-                elif kind == 0:
-                    self.commands += 1
-                self._apply_event_to_framebuffer(self.framebuffer, event)
-                self._notify()
-        with self.lock:
-            if self.decoder is decoder:
-                self.running = False
-                self._notify()
+                if self.decoder is decoder:
+                    self.running = False
+                    self._notify()
 
     def _handle_metadata(self, line: str) -> None:
         match = re.match(r"^#\s*([A-Za-z0-9_]+)=(.+)$", line)
@@ -391,7 +416,7 @@ class LiveCapture:
         framebuffer: bytearray,
         event: dict,
     ) -> None:
-        if event["kind"] == 1:
+        if event.get("dc", event.get("kind")) == 1:
             page = event["page"]
             column = event["column"]
             if 0 <= page < 8 and 0 <= column < 132:
