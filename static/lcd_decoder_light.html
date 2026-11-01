@@ -1158,11 +1158,11 @@
             <div class="clean-display" id="cleanDisplay" aria-label="Clean recognized display" hidden>
               <div class="clean-row" id="cleanRowContainer1">
                 <span class="clean-marker">$</span>
-                <span class="clean-value" id="cleanRow1"><div class="clean-placeholder-bar"></div></span>
+                <span class="clean-value" id="cleanRow1">0.00</span>
               </div>
               <div class="clean-row" id="cleanRowContainer2">
                 <span class="clean-marker" id="cleanUnitMarker">Lt</span>
-                <span class="clean-value" id="cleanRow2"><div class="clean-placeholder-bar"></div></span>
+                <span class="clean-value" id="cleanRow2">0.0</span>
               </div>
             </div>
           </div>
@@ -1616,7 +1616,7 @@
       displayViewMode: 'clean',
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
-      cleanRows: ['___', '___'],
+      cleanRows: ['0.00', '0.0'],
       pageLoadTime: Date.now(),
       commsLost: false,
       commsLostStartTime: 0,
@@ -3074,18 +3074,11 @@
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
-      const renderBarPlaceholder = (element) => {
-        element.replaceChildren();
-        const bar = document.createElement('div');
-        bar.className = 'clean-placeholder-bar';
-        element.appendChild(bar);
-      };
-
       if (state.commsLost) {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
-        renderBarPlaceholder($('cleanRow1'));
-        renderBarPlaceholder($('cleanRow2'));
+        $('cleanRow1').textContent = '0.00';
+        $('cleanRow2').textContent = '0.0';
         return;
       }
 
@@ -3099,13 +3092,13 @@
       const val2 = state.cleanRows[1];
 
       if (isIdle || !val1 || val1 === '—' || val1 === '_' || val1 === '___' || !val1.trim()) {
-        renderBarPlaceholder($('cleanRow1'));
+        $('cleanRow1').textContent = '0.00';
       } else {
         $('cleanRow1').textContent = val1;
       }
 
       if (isIdle || !val2 || val2 === '—' || val2 === '_' || val2 === '___' || !val2.trim()) {
-        renderBarPlaceholder($('cleanRow2'));
+        $('cleanRow2').textContent = '0.0';
       } else {
         $('cleanRow2').textContent = val2;
       }
