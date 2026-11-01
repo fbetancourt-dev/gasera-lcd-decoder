@@ -72,9 +72,9 @@
   },
   "recognition": {
     "enabled": true,
-    "numericMatchPercent": 90.0,
+    "numericMatchPercent": 85.0,
     "templateLibrary": "calibrations/st7565_digits_16x28.json",
-    "matchPercent": 100,
+    "matchPercent": 90.0,
     "holdLastRecognized": true,
     "digitWidth": 16,
     "rowHeight": 28,

@@ -1530,7 +1530,7 @@
       calibrationTarget: null,
       placeDigitOrigin: false,
       recognitionEnabled: true,
-      numericMatchPercent: 99.5,
+      numericMatchPercent: 85.0,
       fullscreenAspect: 'stretch',
       displayViewMode: 'split',
       cleanFont: 'system',
@@ -1677,7 +1677,7 @@
           }
           if (Number.isFinite(stored.numericMatchPercent)) {
             state.numericMatchPercent = Math.max(
-              90, Math.min(100, stored.numericMatchPercent));
+              70, Math.min(100, stored.numericMatchPercent));
           }
           state.templates = stored.templates || {};
           state.screenGuard = normalizeScreenGuard(stored.screenGuard);
@@ -1842,7 +1842,7 @@
         state.recognitionEnabled = recognition.enabled !== false;
         if (Number.isFinite(recognition.numericMatchPercent)) {
           state.numericMatchPercent = Math.max(
-            90, Math.min(100, recognition.numericMatchPercent));
+            70, Math.min(100, recognition.numericMatchPercent));
         }
         state.screenGuard = normalizeScreenGuard(recognition.screenGuard);
         const templates = payload.templates || {};
@@ -2420,8 +2420,9 @@
     }
 
     function analyzeNumericRow(row) {
+      const threshold = state.numericMatchPercent ?? 85.0;
       const exact = row.length === 9 && row.every((slot) =>
-        slot && slot.currentLabel !== null && slot.lastSimilarity === 100
+        slot && slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= threshold)
       );
       if (!exact) return { exact: false, valid: false, text: null };
       const labels = row.map((slot) => slot.currentLabel);
@@ -2516,8 +2517,9 @@
           'Comparison inactive — click “Select 2-row block”.';
         return;
       }
+      const threshold = state.numericMatchPercent ?? 85.0;
       const exact = gridSlots.filter((slot) =>
-        slot.currentLabel !== null && slot.lastSimilarity === 100
+        slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= threshold)
       ).length;
       const readyRows = state.grids.reduce((count, grid) => {
         return count + gridRows(grid).filter(
@@ -2679,8 +2681,9 @@
               slot && slot.currentLabel !== null ? slot.currentLabel : '?'
             ).join('');
         });
+        const threshold = state.numericMatchPercent ?? 85.0;
         const liveExact = rowSlots.flat().filter((slot) =>
-          slot && slot.currentLabel !== null && slot.lastSimilarity === 100
+          slot && slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= threshold)
         ).length;
         const result = document.createElement('div');
         const label = document.createElement('div');
@@ -4390,7 +4393,7 @@
       grid.lastText = null;
       evaluateRecognizers();
       grid.calibrationExact = slots.filter((slot) =>
-        slot.currentLabel !== null && slot.lastSimilarity === 100
+        slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= (state.numericMatchPercent ?? 85.0))
       ).length;
       grid.calibrationDistance = slots.reduce(
         (sum, slot) => sum + (slot.lastDistance || 0), 0
@@ -4434,7 +4437,7 @@
       evaluateRecognizers();
       const slots = state.slots.filter((slot) => slot.gridId === grid.id);
       grid.calibrationExact = slots.filter((slot) =>
-        slot.currentLabel !== null && slot.lastSimilarity === 100
+        slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= (state.numericMatchPercent ?? 85.0))
       ).length;
       grid.calibrationDistance = slots.reduce(
         (sum, slot) => sum + (slot.lastDistance || 0), 0
@@ -4474,7 +4477,7 @@
       evaluateRecognizers();
       const slots = state.slots.filter((slot) => slot.gridId === grid.id);
       grid.calibrationExact = slots.filter((slot) =>
-        slot.currentLabel !== null && slot.lastSimilarity === 100
+        slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= (state.numericMatchPercent ?? 85.0))
       ).length;
       grid.calibrationDistance = slots.reduce(
         (sum, slot) => sum + (slot.lastDistance || 0), 0

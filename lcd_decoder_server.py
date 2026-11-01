@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,8 @@ CALIBRATION_PATH = BASE_DIR / "calibrations" / "st7565_digits_16x28.json"
 C_SOURCE = BASE_DIR / "st7565_trace_export.c"
 CACHE = Path(tempfile.gettempdir()) / f"lcd_decoder_cache_{BASE_DIR.name}"
 BINARY = BASE_DIR / "st7565_trace_export"
+CAPTURES_DIR = BASE_DIR / "captures"
+REPLAY_FILE = CAPTURES_DIR / "all_spi_events.bin"
 MIN_SAMPLE_RATE = 4_000_000
 LIVE_BUFFER_DEFAULT = 1024
 SETTINGS_LOCK = threading.RLock()
@@ -75,6 +78,12 @@ def scan_sigrok_devices() -> list[dict]:
             "driver": driver,
             "label": label,
             "hardware": driver.split(":", 1)[0] != "demo",
+        })
+    if REPLAY_FILE.exists():
+        devices.insert(0, {
+            "driver": "replay:capture_4mhz",
+            "label": f"Captura grabada Saleae (SPI 4 MHz · {REPLAY_FILE.stat().st_size // 12:,} eventos)",
+            "hardware": True,
         })
     if result.returncode and not devices:
         raise RuntimeError(output.strip() or "sigrok device scan failed")
@@ -203,27 +212,65 @@ class LiveCapture:
             raise ValueError("Initial framebuffer must contain 1056 bytes")
         if not re.fullmatch(r"[A-Za-z0-9_.:=-]+", driver):
             raise ValueError("Invalid sigrok driver")
-        requested_base = driver.split(":", 1)[0]
-        matching = []
-        for attempt in range(3):
-            devices = scan_sigrok_devices()
-            matching = [
-                device for device in devices
-                if device["driver"] == driver
-                or device["driver"].split(":", 1)[0] == requested_base
-            ]
-            if any(device["hardware"] for device in matching):
-                break
-            if attempt < 2:
-                time.sleep(0.75)
-        if not matching or not any(device["hardware"] for device in matching):
-            raise ValueError(
-                f"No {requested_base} logic analyzer is connected. "
-                "Connect it and rescan before starting Live mode."
-            )
-        driver = matching[0]["driver"]
+
+        is_replay = driver.startswith("replay")
+        if not is_replay:
+            requested_base = driver.split(":", 1)[0]
+            matching = []
+            for attempt in range(3):
+                devices = scan_sigrok_devices()
+                matching = [
+                    device for device in devices
+                    if device["driver"] == driver
+                    or device["driver"].split(":", 1)[0] == requested_base
+                ]
+                if any(device["hardware"] for device in matching):
+                    break
+                if attempt < 2:
+                    time.sleep(0.75)
+            if not matching or not any(device["hardware"] for device in matching):
+                raise ValueError(
+                    f"No {requested_base} logic analyzer is connected. "
+                    "Connect it and rescan before starting Live mode."
+                )
+            driver = matching[0]["driver"]
         self.stop()
-        self.auto_reconnect = True
+        self.auto_reconnect = not is_replay
+
+        if is_replay:
+            if not REPLAY_FILE.exists():
+                raise FileNotFoundError(f"Replay file {REPLAY_FILE} does not exist.")
+            self._replay_stop_event = threading.Event()
+            with self.lock:
+                self.events = deque(maxlen=buffer_size)
+                self.framebuffer = framebuffer
+                self.buffer_base_framebuffer = bytearray(framebuffer)
+                self.capture = None
+                self.decoder = None
+                self.running = True
+                self.sequence = 0
+                self.capture_epoch = uuid.uuid4().hex[:8]
+                self.sample_rate = sample_rate
+                self.driver = driver
+                self.buffer_size = buffer_size
+                self.events_received = 0
+                self.samples_received = 0
+                self.commands = 0
+                self.data = 0
+                self.invalid_frames = 0
+                self.ignored_bytes = 0
+                self.unknown_commands = 0
+                self.started_at = time.time()
+                self.last_error = ""
+                self._notify()
+            self._replay_thread = threading.Thread(
+                target=self._run_replay_worker,
+                daemon=True,
+                name="SpiReplayWorker",
+            )
+            self._replay_thread.start()
+            return self.status()
+
         compile_decoder()
         capture_command = [
             "sigrok-cli",
@@ -424,7 +471,76 @@ class LiveCapture:
         elif event["value"] == 0xE2:
             framebuffer[:] = b"\0" * len(framebuffer)
 
+    def _run_replay_worker(self) -> None:
+        try:
+            with open(REPLAY_FILE, "rb") as f:
+                data = f.read()
+            total_records = len(data) // 12
+            if not total_records:
+                return
+
+            event_fmt = struct.Struct("<QBBBB")
+            idx = 0
+            while not self._replay_stop_event.is_set():
+                chunk_start = time.perf_counter()
+                batch = []
+                for _ in range(50):
+                    offset = idx * 12
+                    sample, dc, val, page, col = event_fmt.unpack_from(data, offset)
+                    ev = {
+                        "sample": sample,
+                        "sampleEnd": sample,
+                        "dc": dc,
+                        "kind": dc,
+                        "value": val,
+                        "page": page,
+                        "column": col,
+                        "label": "Data" if dc else live_command_name(val),
+                        "name": live_command_name(val) if not dc else "Data",
+                        "flags": 0,
+                    }
+                    batch.append((ev, dc, sample))
+                    idx += 1
+                    if idx >= total_records:
+                        idx = 0  # Loop replay seamlessly
+
+                with self.lock:
+                    if self._replay_stop_event.is_set():
+                        break
+                    for ev, dc, sample in batch:
+                        self.sequence += 1
+                        ev["seq"] = self.sequence
+                        if len(self.events) >= self.events.maxlen:
+                            oldest = self.events.popleft()
+                            self._apply_event_to_framebuffer(
+                                self.buffer_base_framebuffer, oldest)
+                        self.events.append(ev)
+                        self.events_received += 1
+                        self.samples_received = max(self.samples_received, sample)
+                        if dc == 1:
+                            self.data += 1
+                        elif dc == 0:
+                            self.commands += 1
+                        self._apply_event_to_framebuffer(self.framebuffer, ev)
+                    self._notify()
+
+                elapsed = time.perf_counter() - chunk_start
+                sleep_time = 0.007 - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+        except Exception as error:
+            with self.lock:
+                self.last_error = f"Replay error: {error}"
+                self.running = False
+                self._notify()
+        finally:
+            with self.lock:
+                self.running = False
+                self._notify()
+
     def stop(self, user_initiated: bool = False) -> dict:
+        if hasattr(self, "_replay_stop_event"):
+            self._replay_stop_event.set()
         with self.lock:
             if user_initiated:
                 self.auto_reconnect = False
