@@ -1150,11 +1150,11 @@
             <div class="clean-display" id="cleanDisplay" aria-label="Clean recognized display" hidden>
               <div class="clean-row" id="cleanRowContainer1">
                 <span class="clean-marker">$</span>
-                <span class="clean-value" id="cleanRow1">—</span>
+                <span class="clean-value" id="cleanRow1">___</span>
               </div>
               <div class="clean-row" id="cleanRowContainer2">
                 <span class="clean-marker" id="cleanUnitMarker">Lt</span>
-                <span class="clean-value" id="cleanRow2">—</span>
+                <span class="clean-value" id="cleanRow2">___</span>
               </div>
             </div>
           </div>
@@ -1608,7 +1608,7 @@
       displayViewMode: 'clean',
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
-      cleanRows: ['_', '_'],
+      cleanRows: ['___', '___'],
       pageLoadTime: Date.now(),
       commsLost: false,
       commsLostStartTime: 0,
@@ -3069,8 +3069,8 @@
       if (state.commsLost) {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '_';
-        $('cleanRow2').textContent = '_';
+        $('cleanRow1').textContent = '___';
+        $('cleanRow2').textContent = '___';
         return;
       }
 
@@ -3079,13 +3079,13 @@
 
       const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
       if (hasScreenGuard && !state.screenGuardActive) {
-        $('cleanRow1').textContent = '_';
-        $('cleanRow2').textContent = '_';
+        $('cleanRow1').textContent = '___';
+        $('cleanRow2').textContent = '___';
       } else {
         const val1 = state.cleanRows[0];
         const val2 = state.cleanRows[1];
-        $('cleanRow1').textContent = (val1 && val1 !== '—' && val1.trim()) ? val1 : '_';
-        $('cleanRow2').textContent = (val2 && val2 !== '—' && val2.trim()) ? val2 : '_';
+        $('cleanRow1').textContent = (val1 && val1 !== '—' && val1 !== '_' && val1 !== '___' && val1.trim()) ? val1 : '___';
+        $('cleanRow2').textContent = (val2 && val2 !== '—' && val2 !== '_' && val2 !== '___' && val2.trim()) ? val2 : '___';
       }
 
       const marker = $('cleanUnitMarker');
