@@ -2820,6 +2820,10 @@
           slot.lastSimilarity = null;
         }
         for (const grid of state.grids) grid.lastText = null;
+        if (state.cleanRows[0] !== '' || state.cleanRows[1] !== '' || guardChanged) {
+          state.cleanRows = ['', ''];
+          renderCleanDisplay();
+        }
         if (guardChanged) {
           renderRecognitionList();
           renderAsciiOutput();
@@ -3082,18 +3086,33 @@
           clearTimeout(state.commsReasonHoldTimer);
           state.commsReasonHoldTimer = null;
         }
-        if (row1Container) row1Container.hidden = false;
-        if (row2Container) row2Container.hidden = false;
         renderCleanDisplay();
       }
     }
 
     function renderCleanDisplay() {
+      const row1Container = $('cleanRowContainer1');
+      const row2Container = $('cleanRowContainer2');
+
       if (state.commsLost) {
+        if (row1Container) row1Container.hidden = true;
+        if (row2Container) row2Container.hidden = true;
         $('cleanRow1').textContent = '—';
         $('cleanRow2').textContent = '—';
         return;
       }
+
+      const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
+      if (hasScreenGuard && !state.screenGuardActive) {
+        if (row1Container) row1Container.hidden = true;
+        if (row2Container) row2Container.hidden = true;
+        $('cleanRow1').textContent = '';
+        $('cleanRow2').textContent = '';
+        return;
+      }
+
+      if (row1Container) row1Container.hidden = false;
+      if (row2Container) row2Container.hidden = false;
       $('cleanRow1').textContent = state.cleanRows[0] || '—';
       $('cleanRow2').textContent = state.cleanRows[1] || '—';
       const marker = $('cleanUnitMarker');
