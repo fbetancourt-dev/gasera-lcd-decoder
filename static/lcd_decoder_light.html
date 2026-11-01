@@ -582,55 +582,62 @@
     }
     #lcd[hidden] { display: none; }
     .clean-display {
-      width: 1024px;
-      height: 512px;
+      width: 100%;
+      height: 100%;
       display: grid;
       grid-template-rows: repeat(2, minmax(0, 1fr));
       overflow: hidden;
       container-type: size;
-      background: var(--lcd-background);
-      color: var(--lcd-foreground);
-      font-family: var(--clean-font-family, system-ui, sans-serif);
+      background: #ffffff;
+      color: #111111;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       font-variant-numeric: tabular-nums lining-nums;
-      box-shadow: 0 0 0 1px #566154, 0 8px 25px #0008;
+      box-shadow: none;
     }
     .clean-display[hidden] { display: none; }
     .clean-row {
       min-width: 0;
       min-height: 0;
-      display: grid;
-      grid-template-columns: auto 1fr;
+      display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 3%;
-      padding: 1.5% 4%;
+      padding: 0 6vw 0 5vw;
     }
     .clean-marker {
-      font-size: clamp(16px, min(26cqh, 11cqw), 120px);
-      font-weight: 600;
-      line-height: .9;
+      font-size: clamp(40px, min(38cqh, 12cqw), 260px);
+      font-weight: 800;
+      line-height: 1;
       text-align: left;
       white-space: nowrap;
-      min-width: 1.8ch;
+      color: #111111;
     }
     .clean-marker sub {
-      font-size: .55em;
+      font-size: .6em;
       line-height: 0;
-      vertical-align: sub;
+      vertical-align: baseline;
     }
     .clean-value {
       min-width: 0;
       overflow: hidden;
-      font-size: clamp(20px, min(33cqh, 14.5cqw), 180px);
-      font-weight: 600;
-      line-height: .9;
+      font-size: clamp(60px, min(50cqh, 24cqw), 400px);
+      font-weight: 800;
+      line-height: 1;
       text-align: right;
       white-space: nowrap;
       text-overflow: clip;
+      color: #111111;
+      letter-spacing: -0.02em;
     }
+    body.mode-fullscreen .clean-display,
     .lcd-scroll:fullscreen .clean-display {
-      width: 100%;
-      height: 100%;
-      box-shadow: none;
+      width: 100vw !important;
+      height: 100vh !important;
+      max-width: 100vw !important;
+      max-height: 100vh !important;
+      aspect-ratio: unset !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      border: 0 !important;
     }
     .clean-font-control[hidden] { display: none; }
     #lcd.selecting { cursor: crosshair; touch-action: none; }
@@ -1595,8 +1602,8 @@
       placeDigitOrigin: false,
       recognitionEnabled: true,
       numericMatchPercent: 85.0,
-      fullscreenAspect: 'stretch',
-      displayViewMode: 'split',
+      fullscreenAspect: 'preserve',
+      displayViewMode: 'clean',
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
       cleanRows: ['—', '—'],
@@ -5637,21 +5644,20 @@
       }
       $('fullscreenAspect').value = state.fullscreenAspect;
       const storedViewMode = localStorage.getItem(displayViewModeStorageKey);
-      if (!state.displayViewMode || state.displayViewMode === 'split') {
-        if (['pixels', 'clean', 'split'].includes(storedViewMode)) {
-          state.displayViewMode = storedViewMode;
-        } else {
-          const storedCleanDisplayMode =
-            localStorage.getItem(cleanDisplayModeStorageKey);
-          if (storedCleanDisplayMode !== null) {
-            state.displayViewMode =
-              storedCleanDisplayMode === 'true' ? 'clean' : 'pixels';
-          }
-        }
+      if (['pixels', 'clean', 'split'].includes(storedViewMode)) {
+        state.displayViewMode = storedViewMode;
       }
-      const requestedView = new URLSearchParams(window.location.search).get('view');
+      const urlParams = new URLSearchParams(window.location.search);
+      const requestedView = urlParams.get('view');
       if (['pixels', 'clean', 'split'].includes(requestedView)) {
         state.displayViewMode = requestedView;
+      } else if (!storedViewMode) {
+        state.displayViewMode = 'clean';
+      }
+      const requestedFs = urlParams.get('fullscreen') === '1' ||
+                          urlParams.get('kiosk') === '1';
+      if (requestedFs) {
+        document.body.classList.add('mode-fullscreen');
       }
       const storedCleanFont = localStorage.getItem(cleanFontStorageKey);
       if (storedCleanFont && storedCleanFont in cleanFontFamilies) {
