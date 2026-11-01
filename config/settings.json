@@ -63,7 +63,7 @@
         "minorGrid": "#092912"
       }
     },
-    "displayViewMode": "split"
+    "displayViewMode": "pixels"
   },
   "capture": {
     "defaultSampleRate": 4000000,
