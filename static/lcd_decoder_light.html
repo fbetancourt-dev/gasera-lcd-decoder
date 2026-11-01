@@ -2849,23 +2849,9 @@
       state.recognitionHeartbeat = window.setInterval(() => {
         const now = Date.now();
 
-        // Caso 1: Analizador lógico no presente o no corriendo la captura
+        // Alerta de conexión: Únicamente cuando el analizador lógico (sigrok) esté desconectado
         if (!state.liveDeviceAvailable) {
           setCommsLostState(true, 'Analizador lógico no conectado');
-          return;
-        }
-        if (!state.liveRunning || !state.liveMode) {
-          setCommsLostState(true, 'Captura en vivo detenida');
-          return;
-        }
-
-        // Caso 2: Sin pulsos / paquetes SPI del analizador por más de 5 segundos
-        // Si no ha llegado ningún tráfico o han pasado más de 5s desde el último paquete
-        const spiElapsed = state.lastLiveTrafficTime > 0
-          ? now - state.lastLiveTrafficTime
-          : (state.liveStatusStartedAt ? now - state.liveStatusStartedAt : 6000);
-        if (spiElapsed > 5000) {
-          setCommsLostState(true, 'Sin pulsos SPI del display (> 5s)');
           return;
         }
 
@@ -2874,18 +2860,7 @@
           runRecognitionEvaluation();
         }
 
-        // Caso 3: Sin señal decodificada válida de display por más de 5 segundos
-        // (es decir, llegan bytes pero no forman una pantalla o números válidos)
-        const validDecodedElapsed = state.lastValidDecodedTime > 0
-          ? now - state.lastValidDecodedTime
-          : spiElapsed;
-        if (validDecodedElapsed > 5000) {
-          setCommsLostState(true, 'Sin señal decodificada válida (> 5s)');
-          return;
-        }
-
-        // Si hay analizador, pulsos SPI y señal decodificada válida:
-        // Retirar la alerta de inmediato y restaurar los datos en pantalla
+        // Con el analizador presente, retirar la alerta de desconexión si estaba activa
         if (state.commsLost) {
           setCommsLostState(false);
         }
@@ -3022,8 +2997,8 @@
         $('cleanRow1').textContent = '—';
         $('cleanRow2').textContent = '—';
       } else {
-        // Cannot clear if hardware is not connected or capture is not running
-        if (!state.liveDeviceAvailable || !state.liveRunning) {
+        // Cannot clear if hardware is not connected
+        if (!state.liveDeviceAvailable) {
           return;
         }
         if (!state.commsLost) return;
@@ -3872,8 +3847,8 @@
         `${samplesReceived.toLocaleString()} samples`;
       $('channels').textContent = 'D0=/CS · D1=SCLK · D2=MOSI · D3=D/C';
       updateLiveTimeline(status);
-      if (!state.liveRunning) {
-        setCommsLostState(true, status.lastError || 'Captura en vivo no iniciada o detenida');
+      if (!state.liveDeviceAvailable) {
+        setCommsLostState(true, status.lastError || 'Analizador lógico no conectado');
       }
     }
 
@@ -4068,7 +4043,9 @@
       $('liveRate').disabled = false;
       $('liveBuffer').disabled = false;
       $('liveStatus').textContent = 'Live: stopped';
-      setCommsLostState(true);
+      if (!state.liveDeviceAvailable) {
+        setCommsLostState(true, 'Analizador lógico no conectado');
+      }
     }
 
     async function startLiveCapture() {
