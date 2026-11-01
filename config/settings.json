@@ -1,24 +1,24 @@
 {
   "version": 1,
-  "activeVariant": "v1",
+  "activeVariant": "v2",
   "display": {
     "controller": "ST7565/ST7565R",
     "controllerWidth": 132,
     "visibleWidth": 128,
     "height": 64,
-    "visibleColumnStart": 3,
-    "pageMapping": "xor-4",
+    "visibleColumnStart": 0,
+    "pageMapping": "identity",
     "gridEnabled": true,
     "fullscreenAspect": "preserve-grid",
     "visualPadding": false,
     "cleanUnitStyle": "lt",
     "colors": {
-      "foreground": "#704b25",
-      "background": "#e6c99a",
-      "majorGrid": "#a98252",
-      "minorGrid": "#ceb080"
+      "foreground": "#000000",
+      "background": "#ffffff",
+      "majorGrid": "#cccccc",
+      "minorGrid": "#e5e5e5"
     },
-    "activeColorPreset": "Sepia Classic",
+    "activeColorPreset": "Default",
     "colorPresets": {
       "Black on White": {
         "foreground": "#000000",
@@ -62,7 +62,8 @@
         "majorGrid": "#0e3d1b",
         "minorGrid": "#092912"
       }
-    }
+    },
+    "displayViewMode": "split"
   },
   "capture": {
     "defaultSampleRate": 4000000,
@@ -70,17 +71,78 @@
     "autoReconnect": true
   },
   "recognition": {
-    "total": {
-      "x1": 13,
-      "y1": 5,
-      "x2": 125,
-      "y2": 32
+    "enabled": true,
+    "numericMatchPercent": 90.0,
+    "templateLibrary": "calibrations/st7565_digits_16x28.json",
+    "matchPercent": 100,
+    "holdLastRecognized": true,
+    "digitWidth": 16,
+    "rowHeight": 28,
+    "separatorWidths": [
+      4,
+      5,
+      6
+    ],
+    "defaultSeparatorWidth": 5,
+    "rowGaps": [
+      4,
+      5,
+      6
+    ],
+    "defaultRowGap": 4,
+    "screenGuard": {
+      "enabled": false,
+      "matchPercent": 100.0,
+      "markers": [
+        {
+          "template": "$",
+          "matchPercent": 100.0,
+          "rect": {
+            "x1": 0,
+            "y1": 0,
+            "x2": 19,
+            "y2": 31
+          }
+        },
+        {
+          "template": "Lt",
+          "matchPercent": 100.0,
+          "rect": {
+            "x1": 0,
+            "y1": 32,
+            "x2": 19,
+            "y2": 59
+          }
+        }
+      ]
     },
-    "litros": {
-      "x1": 13,
-      "y1": 36,
-      "x2": 125,
-      "y2": 63
-    }
+    "grids": [
+      {
+        "id": "main-two-row-readout",
+        "rows": 2,
+        "columns": 9,
+        "rowRects": [
+          {
+            "x1": 20,
+            "y1": 0,
+            "x2": 119,
+            "y2": 27
+          },
+          {
+            "x1": 20,
+            "y1": 32,
+            "x2": 119,
+            "y2": 59
+          }
+        ],
+        "pattern": "digit-separator-digit-separator-digit-separator-digit-separator-digit",
+        "direction": "rtl",
+        "rowGap": 4,
+        "separatorWidth": 5,
+        "horizontalOffset": 0,
+        "characterAlignmentVersion": 1
+      }
+    ],
+    "manualSlots": []
   }
 }
