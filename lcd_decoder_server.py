@@ -80,10 +80,10 @@ def scan_sigrok_devices() -> list[dict]:
             "hardware": driver.split(":", 1)[0] != "demo",
         })
     if REPLAY_FILE.exists():
-        devices.insert(0, {
+        devices.append({
             "driver": "replay:capture_4mhz",
             "label": f"Captura grabada Saleae (SPI 4 MHz · {REPLAY_FILE.stat().st_size // 12:,} eventos)",
-            "hardware": True,
+            "hardware": False,
         })
     if result.returncode and not devices:
         raise RuntimeError(output.strip() or "sigrok device scan failed")
@@ -124,7 +124,7 @@ class LiveCapture:
         self._supervisor_thread.start()
 
     def _auto_reconnect_supervisor(self) -> None:
-        backoff = 1.5
+        backoff = 1.0
         while True:
             time.sleep(backoff)
             with self.lock:
@@ -134,16 +134,17 @@ class LiveCapture:
             if should_reconnect:
                 try:
                     devices = scan_sigrok_devices()
-                    matching = [d for d in devices if d.get("hardware")]
+                    physical_hw = [d for d in devices if d.get("hardware") and d.get("driver", "").startswith("fx2lafw")]
+                    matching = physical_hw or [d for d in devices if d.get("hardware")]
                     if matching:
                         driver = matching[0]["driver"]
                         sys.stderr.write(f"[LiveSupervisor] Found hardware {driver}, starting live stream...\n")
                         self.start(driver, sample_rate, buffer_size)
                         backoff = 2.0
                     else:
-                        backoff = min(backoff * 1.5, 8.0)
+                        backoff = min(backoff * 1.5, 6.0)
                 except Exception:
-                    backoff = min(backoff * 1.5, 8.0)
+                    backoff = min(backoff * 1.5, 6.0)
             else:
                 backoff = 2.0
 

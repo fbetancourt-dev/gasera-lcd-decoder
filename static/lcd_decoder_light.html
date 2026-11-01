@@ -1608,7 +1608,8 @@
       displayViewMode: 'clean',
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
-      cleanRows: ['—', '—'],
+      cleanRows: ['_', '_'],
+      pageLoadTime: Date.now(),
       commsLost: false,
       commsLostStartTime: 0,
       commsLostReason: '',
@@ -3034,8 +3035,9 @@
       const row2Container = $('cleanRowContainer2');
 
       const isHardwareDisconnected = !state.liveDeviceAvailable;
+      const isWarmup = (now - state.pageLoadTime) < 5000;
 
-      if (isHardwareDisconnected) {
+      if (isHardwareDisconnected && !isWarmup) {
         state.commsLost = true;
         state.commsLostReason = 'Analizador lógico no conectado';
         if (globalDesc) globalDesc.textContent = 'Analizador lógico no conectado';
@@ -3044,8 +3046,10 @@
         if (row2Container) row2Container.hidden = true;
         $('comparisonStatus').textContent = '⚠️ Por favor verifique conexión con el display (Analizador lógico no conectado)';
       } else {
-        // Con hardware USB conectado, el overlay de advertencia NUNCA se muestra
+        // Con hardware USB conectado o en arranque, el overlay de advertencia NUNCA se muestra
         if (globalOverlay) globalOverlay.hidden = true;
+        if (row1Container) row1Container.hidden = false;
+        if (row2Container) row2Container.hidden = false;
         state.commsLost = false;
         state.commsLostReason = '';
         state.currentCommsReason = '';
@@ -3054,6 +3058,7 @@
           clearTimeout(state.commsReasonHoldTimer);
           state.commsReasonHoldTimer = null;
         }
+        renderCleanDisplay();
       }
     }
 
@@ -3064,24 +3069,25 @@
       if (state.commsLost) {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '—';
-        $('cleanRow2').textContent = '—';
-        return;
-      }
-
-      const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
-      if (hasScreenGuard && !state.screenGuardActive) {
-        if (row1Container) row1Container.hidden = true;
-        if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '';
-        $('cleanRow2').textContent = '';
+        $('cleanRow1').textContent = '_';
+        $('cleanRow2').textContent = '_';
         return;
       }
 
       if (row1Container) row1Container.hidden = false;
       if (row2Container) row2Container.hidden = false;
-      $('cleanRow1').textContent = state.cleanRows[0] || '—';
-      $('cleanRow2').textContent = state.cleanRows[1] || '—';
+
+      const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
+      if (hasScreenGuard && !state.screenGuardActive) {
+        $('cleanRow1').textContent = '_';
+        $('cleanRow2').textContent = '_';
+      } else {
+        const val1 = state.cleanRows[0];
+        const val2 = state.cleanRows[1];
+        $('cleanRow1').textContent = (val1 && val1 !== '—' && val1.trim()) ? val1 : '_';
+        $('cleanRow2').textContent = (val2 && val2 !== '—' && val2.trim()) ? val2 : '_';
+      }
+
       const marker = $('cleanUnitMarker');
       if (state.cleanUnitStyle === 'subscript') {
         const suffix = document.createElement('sub');
@@ -5716,7 +5722,6 @@
             state.liveMode = true;
             state.liveRunning = true;
             connectLiveEvents();
-            return;
           }
         }
       } catch {
