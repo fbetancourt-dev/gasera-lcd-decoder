@@ -630,6 +630,20 @@
       color: #000000;
       font-family: 'Ubuntu', 'Ubuntu Sans', sans-serif;
     }
+    .clean-placeholder-line {
+      display: inline-flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: clamp(14px, 2cqw, 28px);
+      height: 100%;
+    }
+    .clean-placeholder-line span {
+      display: inline-block;
+      width: clamp(55px, 7.5cqw, 105px);
+      height: clamp(14px, 2.5cqh, 22px);
+      background: #000000;
+      border-radius: 4px;
+    }
     body.mode-fullscreen .clean-display,
     .lcd-scroll:fullscreen .clean-display {
       width: 100vw !important;
@@ -3066,11 +3080,21 @@
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
+      const renderBarPlaceholder = (element) => {
+        element.replaceChildren();
+        const wrapper = document.createElement('div');
+        wrapper.className = 'clean-placeholder-line';
+        wrapper.appendChild(document.createElement('span'));
+        wrapper.appendChild(document.createElement('span'));
+        wrapper.appendChild(document.createElement('span'));
+        element.appendChild(wrapper);
+      };
+
       if (state.commsLost) {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '___';
-        $('cleanRow2').textContent = '___';
+        renderBarPlaceholder($('cleanRow1'));
+        renderBarPlaceholder($('cleanRow2'));
         return;
       }
 
@@ -3078,14 +3102,21 @@
       if (row2Container) row2Container.hidden = false;
 
       const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
-      if (hasScreenGuard && !state.screenGuardActive) {
-        $('cleanRow1').textContent = '___';
-        $('cleanRow2').textContent = '___';
+      const isIdle = hasScreenGuard && !state.screenGuardActive;
+
+      const val1 = state.cleanRows[0];
+      const val2 = state.cleanRows[1];
+
+      if (isIdle || !val1 || val1 === '—' || val1 === '_' || val1 === '___' || !val1.trim()) {
+        renderBarPlaceholder($('cleanRow1'));
       } else {
-        const val1 = state.cleanRows[0];
-        const val2 = state.cleanRows[1];
-        $('cleanRow1').textContent = (val1 && val1 !== '—' && val1 !== '_' && val1 !== '___' && val1.trim()) ? val1 : '___';
-        $('cleanRow2').textContent = (val2 && val2 !== '—' && val2 !== '_' && val2 !== '___' && val2.trim()) ? val2 : '___';
+        $('cleanRow1').textContent = val1;
+      }
+
+      if (isIdle || !val2 || val2 === '—' || val2 === '_' || val2 === '___' || !val2.trim()) {
+        renderBarPlaceholder($('cleanRow2'));
+      } else {
+        $('cleanRow2').textContent = val2;
       }
 
       const marker = $('cleanUnitMarker');
