@@ -2554,10 +2554,6 @@
       const hasAnyDigit = [d4, d3, d2, d1, d0].some(isDigit);
 
       if (!hasAnyDigit) {
-        if (state.screenGuardActive) {
-          const defaultText = (rowIndex === 0) ? '0.00' : '0.0';
-          return { exact: true, valid: true, text: defaultText };
-        }
         return { exact: false, valid: false, text: null };
       }
 
@@ -2856,18 +2852,35 @@
       state.inactivityTimer = setTimeout(() => {
         state.dispenserPhase = 'idle_zero';
         state.cleanRows = ['0.00', '0.0'];
+        state.heldNumbers = null;
+        state.lastActiveNumbersText = null;
         state.inactivityTimer = null;
         renderCleanDisplay();
       }, state.dispenserHoldMs || 15000);
     }
 
     function onNewDispenserNumbers(analyses, text) {
-      clearDispenserInactivityTimers();
-      state.dispenserPhase = 'active';
+      const rows = analyses.map((a) => a.text);
+      const isCurrentZero = (parseFloat(rows[0]) || 0) === 0 && (parseFloat(rows[1]) || 0) === 0;
+
+      // Si estamos en la ventana de retención de 15 segundos y la bomba manda ceros:
+      // ignorar ceros prematuros para que la última cantidad se quede los 15s completos.
+      if (state.dispenserPhase === 'hold_last' && state.inactivityTimer && isCurrentZero) {
+        return;
+      }
+
       state.lastActiveNumbersText = text;
-      state.heldNumbers = analyses.map((analysis) => analysis.text);
-      state.cleanRows = [...state.heldNumbers];
-      scheduleDispenserInactivity();
+      state.heldNumbers = rows;
+      state.cleanRows = [...rows];
+
+      if (isCurrentZero) {
+        state.dispenserPhase = 'idle_zero';
+        clearDispenserInactivityTimers();
+      } else {
+        state.dispenserPhase = 'active';
+        scheduleDispenserInactivity();
+      }
+
       renderCleanDisplay();
     }
 
@@ -2882,7 +2895,7 @@
           : null;
         if (complete && text !== null) {
           state.lastValidDecodedTime = Date.now();
-          if (state.dispenserPhase !== 'active' || text !== state.lastActiveNumbersText) {
+          if (text !== state.lastActiveNumbersText) {
             onNewDispenserNumbers(analyses, text);
           }
         }
@@ -2890,7 +2903,6 @@
           grid.lastText = text;
           changed = true;
           if (text !== null) {
-            onNewDispenserNumbers(analyses, text);
             const detail = {
               gridId: grid.id,
               rows: text.split('\n'),
