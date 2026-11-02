@@ -1064,7 +1064,7 @@
       <button id="liveScan">Rescan</button>
       <button id="liveStart" disabled>Start live</button>
       <button id="liveStop" disabled>Stop live</button>
-      <button id="liveRecord" disabled style="background: #991b1b; color: #fff; font-weight: bold; border-color: #ef4444;">⏺ Grabar SPI</button>
+      <button id="liveRecord" disabled style="display: none;">⏺ Grabar SPI</button>
       <label>Live rate
         <select id="liveRate">
           <option value="4000000" selected>4 MHz</option>
@@ -3189,28 +3189,23 @@
     }
 
     function setCommsLostState(lost, reason = '') {
-      const now = Date.now();
       const globalOverlay = $('globalCommsOverlay');
       const globalDesc = $('globalWarningDesc');
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
-      const isHardwareDisconnected = !state.liveDeviceAvailable;
-      const isWarmup = (now - state.pageLoadTime) < 5000;
+      if (row1Container) row1Container.hidden = false;
+      if (row2Container) row2Container.hidden = false;
 
-      if (isHardwareDisconnected && !isWarmup) {
+      const isHardwareDisconnected = !state.liveDeviceAvailable;
+
+      if (isHardwareDisconnected) {
         state.commsLost = true;
         state.commsLostReason = 'Analizador lógico no conectado';
         if (globalDesc) globalDesc.textContent = 'Analizador lógico no conectado';
-        if (globalOverlay) globalOverlay.hidden = false;
-        if (row1Container) row1Container.hidden = true;
-        if (row2Container) row2Container.hidden = true;
         $('comparisonStatus').textContent = '⚠️ Por favor verifique conexión con el display (Analizador lógico no conectado)';
       } else {
-        // Con hardware USB conectado o en arranque, el overlay de advertencia NUNCA se muestra
         if (globalOverlay) globalOverlay.hidden = true;
-        if (row1Container) row1Container.hidden = false;
-        if (row2Container) row2Container.hidden = false;
         state.commsLost = false;
         state.commsLostReason = '';
         state.currentCommsReason = '';
@@ -3219,21 +3214,16 @@
           clearTimeout(state.commsReasonHoldTimer);
           state.commsReasonHoldTimer = null;
         }
-        renderCleanDisplay();
       }
+      renderCleanDisplay();
     }
 
     function renderCleanDisplay() {
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
-      if (state.commsLost) {
-        if (row1Container) row1Container.hidden = true;
-        if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '';
-        $('cleanRow2').textContent = '';
-        return;
-      }
+      if (row1Container) row1Container.hidden = false;
+      if (row2Container) row2Container.hidden = false;
 
       if (row1Container) row1Container.hidden = false;
       if (row2Container) row2Container.hidden = false;
@@ -5975,20 +5965,15 @@
         state.fullscreenAspect = storedFullscreenAspect;
       }
       $('fullscreenAspect').value = state.fullscreenAspect;
-      const storedViewMode = localStorage.getItem(displayViewModeStorageKey);
-      if (['pixels', 'clean', 'split'].includes(storedViewMode)) {
-        state.displayViewMode = storedViewMode;
-      }
       const urlParams = new URLSearchParams(window.location.search);
       const requestedView = urlParams.get('view');
       if (['pixels', 'clean', 'split'].includes(requestedView)) {
         state.displayViewMode = requestedView;
-      } else if (!storedViewMode) {
+      } else {
         state.displayViewMode = 'clean';
       }
-      const requestedFs = urlParams.get('fullscreen') === '1' ||
-                          urlParams.get('kiosk') === '1';
-      if (requestedFs) {
+      const requestedFs = urlParams.get('fullscreen');
+      if (requestedFs !== '0' && requestedFs !== 'false') {
         document.body.classList.add('mode-fullscreen');
       }
       const storedCleanFont = localStorage.getItem(cleanFontStorageKey);
