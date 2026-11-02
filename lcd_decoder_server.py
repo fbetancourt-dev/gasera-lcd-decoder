@@ -56,37 +56,53 @@ def live_command_name(value: int) -> str:
     }.get(value, "Command")
 
 
-def scan_sigrok_devices() -> list[dict]:
+LAST_SCAN_CACHE = []
+LAST_SCAN_TIME = 0.0
+
+def scan_sigrok_devices(force: bool = False) -> list[dict]:
+    global LAST_SCAN_CACHE, LAST_SCAN_TIME
+    now = time.time()
+    if not force and LAST_SCAN_CACHE and (now - LAST_SCAN_TIME) < 5.0:
+        return LAST_SCAN_CACHE
     try:
         result = subprocess.run(
             ["sigrok-cli", "--scan"],
             check=False,
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
+        if LAST_SCAN_CACHE:
+            return LAST_SCAN_CACHE
         raise RuntimeError(f"Could not scan sigrok devices: {error}") from error
-    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    output = chr(10).join(part for part in (result.stdout, result.stderr) if part)
     devices = []
     for line in output.splitlines():
-        match = re.match(r"^(\S+)\s+-\s+(.+)$", line.strip())
-        if not match:
+        line = line.strip()
+        if not line or line.startswith("The following") or line.startswith("demo"):
             continue
-        driver, label = match.groups()
+        parts = line.split(" - ", 1)
+        driver = parts[0].strip()
+        label = parts[1].strip() if len(parts) > 1 else driver
         devices.append({
             "driver": driver,
             "label": label,
-            "hardware": driver.split(":", 1)[0] != "demo",
+            "hardware": True,
         })
-    if REPLAY_FILE.exists():
-        devices.append({
-            "driver": "replay:capture_4mhz",
-            "label": f"Captura grabada Saleae (SPI 4 MHz · {REPLAY_FILE.stat().st_size // 12:,} eventos)",
-            "hardware": False,
-        })
-    if result.returncode and not devices:
-        raise RuntimeError(output.strip() or "sigrok device scan failed")
+    bin_files = sorted(CAPTURES_DIR.glob("*.bin"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for bf in bin_files:
+        if bf.stat().st_size >= 120:  # at least 10 events
+            event_count = bf.stat().st_size // 12
+            devices.append({
+                "driver": f"replay:{bf.name}",
+                "label": f"Playback: {bf.name} ({event_count:,} eventos)",
+                "hardware": True,
+            })
+    if not devices and LAST_SCAN_CACHE:
+        return LAST_SCAN_CACHE
+    LAST_SCAN_CACHE = devices
+    LAST_SCAN_TIME = now
     return devices
 
 
@@ -108,6 +124,11 @@ class LiveCapture:
         self.sample_rate = 4_000_000
         self.driver = "fx2lafw"
         self.buffer_size = LIVE_BUFFER_DEFAULT
+        self.replay_speed = 1.0
+        self.recording = False
+        self.record_file = None
+        self.record_path = None
+        self.recorded_events = 0
         self.events_received = 0
         self.samples_received = 0
         self.commands = 0
@@ -133,7 +154,7 @@ class LiveCapture:
                 buffer_size = self.buffer_size or LIVE_BUFFER_DEFAULT
             if should_reconnect:
                 try:
-                    devices = scan_sigrok_devices()
+                    devices = scan_sigrok_devices(force=True)
                     physical_hw = [d for d in devices if d.get("hardware") and d.get("driver", "").startswith("fx2lafw")]
                     matching = physical_hw or [d for d in devices if d.get("hardware")]
                     if matching:
@@ -174,6 +195,9 @@ class LiveCapture:
             "lastError": self.last_error,
             "version": self.version,
             "captureEpoch": self.capture_epoch,
+            "replaySpeed": getattr(self, "replay_speed", 1.0),
+            "recording": getattr(self, "recording", False),
+            "recordedEvents": getattr(self, "recorded_events", 0),
         }
 
     def snapshot(self) -> dict:
@@ -185,6 +209,7 @@ class LiveCapture:
                 "events": list(self.events),
                 "sequence": self.sequence,
                 "captureEpoch": self.capture_epoch,
+            "replaySpeed": getattr(self, "replay_speed", 1.0),
             }
 
     def start(
@@ -219,7 +244,7 @@ class LiveCapture:
             requested_base = driver.split(":", 1)[0]
             matching = []
             for attempt in range(3):
-                devices = scan_sigrok_devices()
+                devices = scan_sigrok_devices(force=True)
                 matching = [
                     device for device in devices
                     if device["driver"] == driver
@@ -239,8 +264,14 @@ class LiveCapture:
         self.auto_reconnect = not is_replay
 
         if is_replay:
-            if not REPLAY_FILE.exists():
-                raise FileNotFoundError(f"Replay file {REPLAY_FILE} does not exist.")
+            global REPLAY_FILE
+            filename = driver.split(":", 1)[1] if ":" in driver else ""
+            target_bin = (CAPTURES_DIR / filename) if filename else REPLAY_FILE
+            if not target_bin.exists():
+                target_bin = CAPTURES_DIR / "all_spi_events.bin"
+            if not target_bin.exists():
+                raise FileNotFoundError(f"Replay file {target_bin} does not exist.")
+            REPLAY_FILE = target_bin
             self._replay_stop_event = threading.Event()
             with self.lock:
                 self.events = deque(maxlen=buffer_size)
@@ -295,8 +326,8 @@ class LiveCapture:
                 stdin=capture.stdout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
+                text=False,
+                bufsize=0,
             )
             capture.stdout.close()
         except (OSError, subprocess.SubprocessError):
@@ -348,81 +379,73 @@ class LiveCapture:
         capture: subprocess.Popen,
     ) -> None:
         assert decoder.stdout is not None
+        event_fmt = struct.Struct("<QBBBB")  # 12-byte little-endian binary record
+        buf = bytearray()
+        last_notify_time = 0.0
+        pending_events = 0
+        raw_in = decoder.stdout.raw if hasattr(decoder.stdout, "raw") else decoder.stdout
+
         try:
-            for raw_line in decoder.stdout:
-                line = raw_line.strip()
-                if not line:
-                    continue
-                fields = line.split()
-                if not fields:
-                    continue
-                if fields[0] == "X" and len(fields) == 3:
-                    with self.lock:
-                        self.invalid_frames += int(fields[1])
-                        self.ignored_bytes += int(fields[2])
-                    continue
-                if fields[0] == "U" and len(fields) == 2:
-                    with self.lock:
-                        self.ignored_bytes += 1
-                        self.unknown_commands += 1
-                    continue
-                if fields[0] == "P" and len(fields) in (2, 5):
-                    with self.lock:
-                        self.samples_received = int(fields[1])
-                        if len(fields) == 5:
-                            self.invalid_frames = int(fields[2])
-                            self.ignored_bytes = int(fields[3])
-                            self.unknown_commands = int(fields[4])
-                        self._notify()
-                    continue
-                if fields[0] == "S" and len(fields) == 8:
-                    with self.lock:
-                        self.samples_received = int(fields[1])
-                        self.events_received = int(fields[2])
-                        self.commands = int(fields[3])
-                        self.data = int(fields[4])
-                        self.invalid_frames = int(fields[5])
-                        self.ignored_bytes = int(fields[6])
-                        self.unknown_commands = int(fields[7])
-                        self._notify()
-                    continue
-                if fields[0] != "E" or len(fields) != 6:
-                    continue
-                try:
-                    sample, dc, value, page, column = map(int, fields[1:])
-                except ValueError:
+            while True:
+                chunk = raw_in.read(16384)
+                if not chunk:
+                    break
+                buf.extend(chunk)
+
+                num_events = len(buf) // 12
+                if num_events == 0:
                     continue
 
-                event = {
-                    "sample": sample,
-                    "sampleEnd": sample,
-                    "dc": dc,
-                    "kind": dc,
-                    "value": value,
-                    "page": page,
-                    "column": column,
-                    "label": "Data" if dc else live_command_name(value),
-                    "name": live_command_name(value) if not dc else "Data",
-                    "flags": 0,
-                }
+                valid_len = num_events * 12
+                data_chunk = buf[:valid_len]
+                del buf[:valid_len]
+
+                now = time.monotonic()
                 with self.lock:
                     if self.decoder is not decoder:
                         return
-                    self.sequence += 1
-                    event["seq"] = self.sequence
-                    if len(self.events) >= self.events.maxlen:
-                        oldest = self.events.popleft()
-                        self._apply_event_to_framebuffer(
-                            self.buffer_base_framebuffer, oldest)
-                    self.events.append(event)
-                    self.events_received += 1
-                    self.samples_received = max(self.samples_received, sample)
-                    if dc == 1:
-                        self.data += 1
-                    elif dc == 0:
-                        self.commands += 1
-                    self._apply_event_to_framebuffer(self.framebuffer, event)
-                    self._notify()
+                    if getattr(self, "recording", False) and getattr(self, "record_file", None):
+                        try:
+                            self.record_file.write(data_chunk)
+                            self.recorded_events += num_events
+                        except Exception:
+                            pass
+                    for offset in range(0, valid_len, 12):
+                        sample, dc, value, page, column = event_fmt.unpack_from(data_chunk, offset)
+                        self.sequence += 1
+                        event = {
+                            "seq": self.sequence,
+                            "sample": sample,
+                            "sampleEnd": sample,
+                            "dc": dc,
+                            "kind": dc,
+                            "value": value,
+                            "page": page,
+                            "column": column,
+                            "label": "Data" if dc else live_command_name(value),
+                            "name": live_command_name(value) if not dc else "Data",
+                            "flags": 0,
+                        }
+                        if len(self.events) >= self.events.maxlen:
+                            oldest = self.events.popleft()
+                            self._apply_event_to_framebuffer(
+                                self.buffer_base_framebuffer, oldest)
+                        self.events.append(event)
+                        self.events_received += 1
+                        self.samples_received = max(self.samples_received, sample)
+                        if dc == 1:
+                            self.data += 1
+                        elif dc == 0:
+                            self.commands += 1
+                        self._apply_event_to_framebuffer(self.framebuffer, event)
+                        pending_events += 1
+
+                    # Atomic burst notification: notify on every read chunk from C
+                    # C flushes immediately upon burst completion (CS=1 or buffer boundary)
+                    if pending_events > 0:
+                        self._notify()
+                        last_notify_time = now
+                        pending_events = 0
         finally:
             with self.lock:
                 if self.decoder is decoder:
@@ -472,6 +495,46 @@ class LiveCapture:
         elif event["value"] == 0xE2:
             framebuffer[:] = b"\0" * len(framebuffer)
 
+    def start_recording(self, filename: str | None = None) -> dict:
+        with self.lock:
+            if not self.running:
+                raise RuntimeError("No se puede grabar: la captura en vivo no está corriendo.")
+            if self.recording:
+                return {"recording": True, "path": str(self.record_path), "events": self.recorded_events}
+            if not filename:
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"capture_live_{ts}.bin"
+            elif not filename.endswith(".bin"):
+                filename += ".bin"
+            clean_name = re.sub(r"[^A-Za-z0-9_.-]", "_", filename)
+            record_path = CAPTURES_DIR / clean_name
+            CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+            self.record_file = open(record_path, "wb")
+            self.record_path = record_path
+            self.recording = True
+            self.recorded_events = 0
+            self._notify()
+            return {"recording": True, "path": str(record_path), "filename": clean_name}
+
+    def stop_recording(self) -> dict:
+        with self.lock:
+            if not self.recording:
+                return {"recording": False, "events": 0}
+            if self.record_file:
+                try:
+                    self.record_file.flush()
+                    self.record_file.close()
+                except Exception:
+                    pass
+                self.record_file = None
+            path_str = str(self.record_path) if self.record_path else ""
+            events = self.recorded_events
+            self.recording = False
+            self.record_path = None
+            self.recorded_events = 0
+            self._notify()
+            return {"recording": False, "path": path_str, "events": events}
+
     def _run_replay_worker(self) -> None:
         try:
             with open(REPLAY_FILE, "rb") as f:
@@ -482,10 +545,12 @@ class LiveCapture:
 
             event_fmt = struct.Struct("<QBBBB")
             idx = 0
+            last_sample = 0
             while not self._replay_stop_event.is_set():
-                chunk_start = time.perf_counter()
+                speed = max(0.1, min(16.0, float(getattr(self, "replay_speed", 1.0))))
                 batch = []
-                for _ in range(50):
+                target_delay_s = 0.0
+                while len(batch) < 128 and idx < total_records:
                     offset = idx * 12
                     sample, dc, val, page, col = event_fmt.unpack_from(data, offset)
                     ev = {
@@ -500,35 +565,47 @@ class LiveCapture:
                         "name": live_command_name(val) if not dc else "Data",
                         "flags": 0,
                     }
+                    if last_sample > 0 and sample > last_sample:
+                        delta_samples = sample - last_sample
+                        if delta_samples > 20000:  # > 5ms natural pause at 4 MHz
+                            target_delay_s = min(2.5, (delta_samples / 4_000_000.0) / speed)
+                            last_sample = sample
+                            idx += 1
+                            batch.append((ev, dc, sample))
+                            break
+                    last_sample = sample
                     batch.append((ev, dc, sample))
                     idx += 1
-                    if idx >= total_records:
-                        idx = 0  # Loop replay seamlessly
 
-                with self.lock:
-                    if self._replay_stop_event.is_set():
-                        break
-                    for ev, dc, sample in batch:
-                        self.sequence += 1
-                        ev["seq"] = self.sequence
-                        if len(self.events) >= self.events.maxlen:
-                            oldest = self.events.popleft()
-                            self._apply_event_to_framebuffer(
-                                self.buffer_base_framebuffer, oldest)
-                        self.events.append(ev)
-                        self.events_received += 1
-                        self.samples_received = max(self.samples_received, sample)
-                        if dc == 1:
-                            self.data += 1
-                        elif dc == 0:
-                            self.commands += 1
-                        self._apply_event_to_framebuffer(self.framebuffer, ev)
-                    self._notify()
+                if idx >= total_records:
+                    idx = 0
+                    last_sample = 0
 
-                elapsed = time.perf_counter() - chunk_start
-                sleep_time = 0.007 - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+                if batch:
+                    with self.lock:
+                        if self._replay_stop_event.is_set():
+                            break
+                        for ev, dc, sample in batch:
+                            self.sequence += 1
+                            ev["seq"] = self.sequence
+                            if len(self.events) >= self.events.maxlen:
+                                oldest = self.events.popleft()
+                                self._apply_event_to_framebuffer(
+                                    self.buffer_base_framebuffer, oldest)
+                            self.events.append(ev)
+                            self.events_received += 1
+                            self.samples_received = max(self.samples_received, sample)
+                            if dc == 1:
+                                self.data += 1
+                            elif dc == 0:
+                                self.commands += 1
+                            self._apply_event_to_framebuffer(self.framebuffer, ev)
+                        self._notify()
+
+                if target_delay_s > 0.001:
+                    time.sleep(target_delay_s)
+                else:
+                    time.sleep(max(0.0003, 0.001 / speed))
         except Exception as error:
             with self.lock:
                 self.last_error = f"Replay error: {error}"
@@ -543,6 +620,14 @@ class LiveCapture:
         if hasattr(self, "_replay_stop_event"):
             self._replay_stop_event.set()
         with self.lock:
+            if getattr(self, "recording", False) and getattr(self, "record_file", None):
+                try:
+                    self.record_file.flush()
+                    self.record_file.close()
+                except Exception:
+                    pass
+                self.recording = False
+                self.record_file = None
             if user_initiated:
                 self.auto_reconnect = False
             capture = self.capture
@@ -786,7 +871,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/live/devices":
             try:
-                self.send_json({"devices": scan_sigrok_devices()})
+                self.send_json({"devices": scan_sigrok_devices(force=True)})
             except RuntimeError as error:
                 self.send_json({"error": str(error)}, HTTPStatus.SERVICE_UNAVAILABLE)
             return
@@ -807,6 +892,10 @@ class Handler(SimpleHTTPRequestHandler):
         valid_paths = (
             "/api/live/start",
             "/api/live/stop",
+            "/api/live/speed",
+            "/api/live/record/start",
+            "/api/live/record/stop",
+            "/api/live/replay/select",
             "/api/settings/variant",
             "/api/settings/recognition",
             "/api/settings/display-colors",
@@ -828,6 +917,33 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/settings/display-colors":
                 self.send_json(save_display_colors(payload))
+                return
+            if parsed.path == "/api/live/speed":
+                speed = float(payload.get("speed", 1.0))
+                LIVE.replay_speed = max(0.1, min(16.0, speed))
+                with LIVE.lock:
+                    LIVE._notify()
+                self.send_json({"success": True, "replaySpeed": LIVE.replay_speed})
+                return
+            if parsed.path == "/api/live/record/start":
+                filename = payload.get("filename")
+                res = LIVE.start_recording(filename)
+                self.send_json(res)
+                return
+            if parsed.path == "/api/live/record/stop":
+                res = LIVE.stop_recording()
+                self.send_json(res)
+                return
+            if parsed.path == "/api/live/replay/select":
+                filename = payload.get("filename", "")
+                target = CAPTURES_DIR / filename
+                if not target.exists() or not target.is_file():
+                    raise FileNotFoundError(f"Archivo {filename} no encontrado en captures.")
+                global REPLAY_FILE
+                REPLAY_FILE = target
+                if LIVE.driver.startswith("replay"):
+                    LIVE.start(f"replay:{target.name}", LIVE.sample_rate, LIVE.buffer_size)
+                self.send_json({"success": True, "replayFile": filename})
                 return
             if parsed.path == "/api/live/start":
                 status = LIVE.start(

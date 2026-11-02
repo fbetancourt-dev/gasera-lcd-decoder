@@ -1064,6 +1064,7 @@
       <button id="liveScan">Rescan</button>
       <button id="liveStart" disabled>Start live</button>
       <button id="liveStop" disabled>Stop live</button>
+      <button id="liveRecord" disabled style="background: #991b1b; color: #fff; font-weight: bold; border-color: #ef4444;">⏺ Grabar SPI</button>
       <label>Live rate
         <select id="liveRate">
           <option value="4000000" selected>4 MHz</option>
@@ -1075,6 +1076,15 @@
         <select id="liveBuffer">
           <option value="512">512 events</option>
           <option value="1024" selected>1024 events</option>
+        </select>
+      </label>
+      <label>Speed
+        <select id="liveSpeed">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x Normal</option>
+          <option value="2">2x Acelerada</option>
+          <option value="4">4x Rápida</option>
+          <option value="8">8x Ultra</option>
         </select>
       </label>
       <span class="pill" id="liveStatus">Live: stopped</span>
@@ -1617,6 +1627,11 @@
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
       cleanRows: ['0.00', '0.0'],
+      inactivityTimeoutMs: 30000,
+      inactivityTimer: null,
+      isScreenBlankedDueToInactivity: false,
+      lastActiveNumbersText: null,
+      heldNumbers: null,
       pageLoadTime: Date.now(),
       commsLost: false,
       commsLostStartTime: 0,
@@ -1925,6 +1940,9 @@
         if (Number.isFinite(recognition.numericMatchPercent)) {
           state.numericMatchPercent = Math.max(
             70, Math.min(100, recognition.numericMatchPercent));
+        }
+        if (Number.isFinite(recognition.inactivityTimeoutSeconds)) {
+          state.inactivityTimeoutMs = Math.max(1, recognition.inactivityTimeoutSeconds) * 1000;
         }
         state.screenGuard = normalizeScreenGuard(recognition.screenGuard);
         const templates = payload.templates || {};
@@ -2501,39 +2519,63 @@
       return rows;
     }
 
-    function analyzeNumericRow(row) {
-      const threshold = state.numericMatchPercent ?? 85.0;
-      const exact = row.length === 9 && row.every((slot) =>
-        slot && slot.currentLabel !== null && (slot.lastSimilarity === null || slot.lastSimilarity >= threshold)
-      );
-      if (!exact) return { exact: false, valid: false, text: null };
-      const labels = row.map((slot) => slot.currentLabel);
-      const decimalPositions = labels
-        .map((label, index) => label === '.' ? index : -1)
-        .filter((index) => index >= 0);
-      if (decimalPositions.length > 1) {
-        return { exact: true, valid: false, text: labels.join('') };
+    function analyzeNumericRow(row, rowIndex) {
+      if (rowIndex === undefined && row && row[0]) {
+        rowIndex = row[0].rowIndex;
       }
-      const decimalPosition = decimalPositions[0] ?? labels.length;
-      const leftDigitPositions = [0, 2, 4, 6, 8].filter(
-        (index) => index < decimalPosition
-      );
-      const firstDigitOffset = leftDigitPositions.findIndex(
-        (index) => /^[0-9]$/.test(labels[index])
-      );
-      if (firstDigitOffset < 0) {
-        return { exact: true, valid: false, text: labels.join('') };
+      if (!row || !row.length) return { exact: false, valid: false, text: null };
+
+      let d4, d3, d2, d1, d0;
+      if (row.length >= 9) {
+        d4 = row[0]?.currentLabel;
+        d3 = row[2]?.currentLabel;
+        d2 = row[4]?.currentLabel;
+        d1 = row[6]?.currentLabel;
+        d0 = row[8]?.currentLabel;
+      } else if (row.length === 5) {
+        d4 = row[0]?.currentLabel;
+        d3 = row[1]?.currentLabel;
+        d2 = row[2]?.currentLabel;
+        d1 = row[3]?.currentLabel;
+        d0 = row[4]?.currentLabel;
+      } else {
+        d4 = row[0]?.currentLabel;
+        d3 = row[1]?.currentLabel;
+        d2 = row[2]?.currentLabel;
+        d1 = row[3]?.currentLabel;
+        d0 = row[4]?.currentLabel;
       }
-      const hasGapInsideNumber = leftDigitPositions
-        .slice(firstDigitOffset)
-        .some((index) => !/^[0-9]$/.test(labels[index]));
-      const text = labels
-        .filter((label, index) => index % 2 === 0 || label === '.')
-        .join('')
-        .trimStart();
+
+      const isDigit = (c) => typeof c === 'string' && /^[0-9]$/.test(c);
+      const hasAnyDigit = [d4, d3, d2, d1, d0].some(isDigit);
+
+      if (!hasAnyDigit) {
+        if (state.screenGuardActive) {
+          const defaultText = (rowIndex === 0) ? '0.00' : '0.0';
+          return { exact: true, valid: true, text: defaultText };
+        }
+        return { exact: false, valid: false, text: null };
+      }
+
+      let text;
+      if (rowIndex === 0) {
+        const dec0 = isDigit(d0) ? d0 : '0';
+        const dec1 = isDigit(d1) ? d1 : '0';
+        const intDigits = [d4, d3, d2].filter(isDigit);
+        const intStr = intDigits.join('').replace(/^0+(?=\d)/, '');
+        const intPart = intStr || '0';
+        text = intPart + '.' + dec1 + dec0;
+      } else {
+        const dec0 = isDigit(d0) ? d0 : '0';
+        const intDigits = [d4, d3, d2, d1].filter(isDigit);
+        const intStr = intDigits.join('').replace(/^0+(?=\d)/, '');
+        const intPart = intStr || '0';
+        text = intPart + '.' + dec0;
+      }
+
       return {
         exact: true,
-        valid: !hasGapInsideNumber,
+        valid: true,
         text,
       };
     }
@@ -2796,23 +2838,47 @@
       updateComparisonStatus();
     }
 
+    function scheduleInactivityTimeout() {
+      if (state.inactivityTimer) {
+        clearTimeout(state.inactivityTimer);
+        state.inactivityTimer = null;
+      }
+      state.inactivityTimer = setTimeout(() => {
+        state.isScreenBlankedDueToInactivity = true;
+        state.cleanRows = ['', ''];
+        state.inactivityTimer = null;
+        renderCleanDisplay();
+      }, state.inactivityTimeoutMs || 30000);
+    }
+
     function evaluateAsciiGrids() {
       let changed = false;
       for (const grid of state.grids) {
         const rows = gridRows(grid);
-        const analyses = rows.map(analyzeNumericRow);
+        const analyses = rows.map((row, index) => analyzeNumericRow(row, index));
         const complete = analyses.every((analysis) => analysis.valid);
         const text = complete
           ? analyses.map((analysis) => analysis.text).join('\n')
           : null;
         if (complete && text !== null) {
           state.lastValidDecodedTime = Date.now();
+          if (state.isScreenBlankedDueToInactivity || text !== state.lastActiveNumbersText) {
+            state.isScreenBlankedDueToInactivity = false;
+            state.lastActiveNumbersText = text;
+            state.heldNumbers = analyses.map((analysis) => analysis.text);
+            state.cleanRows = [...state.heldNumbers];
+            scheduleInactivityTimeout();
+          }
         }
         if (text !== grid.lastText) {
           grid.lastText = text;
           changed = true;
           if (text !== null) {
-            state.cleanRows = analyses.map((analysis) => analysis.text);
+            state.isScreenBlankedDueToInactivity = false;
+            state.lastActiveNumbersText = text;
+            state.heldNumbers = analyses.map((analysis) => analysis.text);
+            state.cleanRows = [...state.heldNumbers];
+            scheduleInactivityTimeout();
             renderCleanDisplay();
             const detail = {
               gridId: grid.id,
@@ -2838,9 +2904,13 @@
           slot.lastSimilarity = null;
         }
         for (const grid of state.grids) grid.lastText = null;
-        if (state.cleanRows[0] !== '' || state.cleanRows[1] !== '' || guardChanged) {
-          state.cleanRows = ['', ''];
+        if (!state.isScreenBlankedDueToInactivity && state.heldNumbers) {
           renderCleanDisplay();
+        } else {
+          if (state.cleanRows[0] !== '' || state.cleanRows[1] !== '' || guardChanged) {
+            state.cleanRows = ['', ''];
+            renderCleanDisplay();
+          }
         }
         if (guardChanged) {
           renderRecognitionList();
@@ -2854,25 +2924,48 @@
       }
       const templates = Object.values(state.templates);
       let shouldRender = guardChanged;
-      for (const slot of state.slots) {
-        const currentBits = bitmapForRect(slot.rect);
+      const evaluateAll = (dirtySlotMask === 0 || dirtySlotMask === 0xFFFFFFFF || guardChanged);
+      const currentDirty = dirtySlotMask;
+      dirtySlotMask = 0; // reset for next burst
+
+      for (let sIdx = 0; sIdx < state.slots.length; sIdx++) {
+        const slot = state.slots[sIdx];
+        if (!evaluateAll && !(currentDirty & (1 << sIdx))) {
+          continue; // Skip untouched slots completely!
+        }
         const width = slot.rect.x2 - slot.rect.x1 + 1;
         const height = slot.rect.y2 - slot.rect.y1 + 1;
+        const isStandard16x28 = (width === 16 && height === 28);
+        const slotWords = isStandard16x28 ? slotToUint32Array(slot.rect) : null;
+        let currentBits = null;
+
         let bestTemplate = null;
         let bestDistance = Number.POSITIVE_INFINITY;
         for (const template of templates) {
           if (screenMarkerLabels.includes(template.label)) continue;
           if (slot.allowedLabels && !slot.allowedLabels.includes(template.label)) continue;
-          const distance = slot.role === 'separator' || template.label === ' '
-            ? resizedTemplateDistance(template, currentBits, width, height)
-            : template.width === width && template.height === height
-              ? bitmapDistance(currentBits, template.bits)
-              : Number.POSITIVE_INFINITY;
+
+          let distance;
+          if (isStandard16x28 && template.width === 16 && template.height === 28) {
+            if (!template.words32) {
+              template.words32 = bitsToUint32Array(template.bits);
+            }
+            distance = bitmapDistanceFast(slotWords, template.words32);
+          } else {
+            if (!currentBits) currentBits = bitmapForRect(slot.rect);
+            distance = slot.role === 'separator' || template.label === ' '
+              ? resizedTemplateDistance(template, currentBits, width, height)
+              : template.width === width && template.height === height
+                ? bitmapDistance(currentBits, template.bits)
+                : Number.POSITIVE_INFINITY;
+          }
+
           if (distance < bestDistance) {
             bestDistance = distance;
             bestTemplate = template;
           }
         }
+        if (!currentBits) currentBits = bitmapForRect(slot.rect);
         const similarity = bestTemplate
           ? (1 - bestDistance / currentBits.length) * 100
           : 0;
@@ -3074,34 +3167,33 @@
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
-      if (state.commsLost) {
+      if (state.commsLost || state.isScreenBlankedDueToInactivity) {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '0.00';
-        $('cleanRow2').textContent = '0.0';
+        $('cleanRow1').textContent = '';
+        $('cleanRow2').textContent = '';
+        return;
+      }
+
+      const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
+      const isScreenActive = !hasScreenGuard || state.screenGuardActive;
+
+      if (!isScreenActive && !state.heldNumbers) {
+        if (row1Container) row1Container.hidden = true;
+        if (row2Container) row2Container.hidden = true;
+        $('cleanRow1').textContent = '';
+        $('cleanRow2').textContent = '';
         return;
       }
 
       if (row1Container) row1Container.hidden = false;
       if (row2Container) row2Container.hidden = false;
 
-      const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
-      const isIdle = hasScreenGuard && !state.screenGuardActive;
+      const val1 = state.cleanRows[0] || (state.heldNumbers ? state.heldNumbers[0] : '0.00');
+      const val2 = state.cleanRows[1] || (state.heldNumbers ? state.heldNumbers[1] : '0.0');
 
-      const val1 = state.cleanRows[0];
-      const val2 = state.cleanRows[1];
-
-      if (isIdle || !val1 || val1 === '—' || val1 === '_' || val1 === '___' || !val1.trim()) {
-        $('cleanRow1').textContent = '0.00';
-      } else {
-        $('cleanRow1').textContent = val1;
-      }
-
-      if (isIdle || !val2 || val2 === '—' || val2 === '_' || val2 === '___' || !val2.trim()) {
-        $('cleanRow2').textContent = '0.0';
-      } else {
-        $('cleanRow2').textContent = val2;
-      }
+      const targetVal1 = val1 || '0.00'; if ($('cleanRow1').textContent !== targetVal1) $('cleanRow1').textContent = targetVal1;
+      const targetVal2 = val2 || '0.0'; if ($('cleanRow2').textContent !== targetVal2) $('cleanRow2').textContent = targetVal2;
 
       const marker = $('cleanUnitMarker');
       if (state.cleanUnitStyle === 'subscript') {
@@ -3378,27 +3470,136 @@
       }
     }
 
+    
+    // ==========================================
+    // Codex Optimization: Offscreen Canvas & Fast Bitwise OCR
+    // ==========================================
+    let offscreenCanvas = null;
+    let offscreenCtx = null;
+    let lcdImageData = null;
+    let lcdPixels32 = null;
+    let cachedBgABGR = 0xFFFFFFFF;
+    let cachedFgABGR = 0xFF000000;
+    let cachedColorsKey = '';
+
+    function initOffscreenLcd() {
+      if (offscreenCanvas) return;
+      offscreenCanvas = document.createElement('canvas');
+      offscreenCanvas.width = 132;
+      offscreenCanvas.height = 64;
+      offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: false });
+      lcdImageData = offscreenCtx.createImageData(132, 64);
+      lcdPixels32 = new Uint32Array(lcdImageData.data.buffer);
+    }
+
+    function hexToABGR(hex, defaultVal = 0xFF000000) {
+      if (!hex || typeof hex !== 'string') return defaultVal;
+      let clean = hex.replace('#', '').trim();
+      if (clean.length === 3) {
+        clean = clean[0] + clean[0] + clean[1] + clean[1] + clean[2] + clean[2];
+      }
+      if (clean.length !== 6) return defaultVal;
+      const r = parseInt(clean.substring(0, 2), 16);
+      const g = parseInt(clean.substring(2, 4), 16);
+      const b = parseInt(clean.substring(4, 6), 16);
+      return (255 << 24) | (b << 16) | (g << 8) | r;
+    }
+
+    function popcount32(v) {
+      v = v - ((v >>> 1) & 0x55555555);
+      v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+      return (((v + (v >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
+    }
+
+    function bitsToUint32Array(bits) {
+      const words = new Uint32Array(14); // 448 bits = 14 * 32
+      const len = Math.min(bits.length, 448);
+      for (let i = 0; i < len; i++) {
+        const val = (typeof bits === 'string') ? (bits.charCodeAt(i) === 49 ? 1 : 0) : (bits[i] ? 1 : 0);
+        if (val) {
+          words[i >> 5] |= (1 << (i & 31));
+        }
+      }
+      return words;
+    }
+
+    function slotToUint32Array(rect) {
+      const words = new Uint32Array(14);
+      const fb = state.framebuffer;
+      if (!fb) return words;
+      const x1 = rect.x1;
+      const y1 = rect.y1;
+      const x2 = rect.x2;
+      const y2 = rect.y2;
+      let bitCounter = 0;
+      for (let y = y1; y <= y2; y++) {
+        const page = y >> 3;
+        const mask = 1 << (y & 7);
+        const rowOffset = page * state.meta.controllerWidth;
+        for (let x = x1; x <= x2; x++) {
+          if (fb[rowOffset + x] & mask) {
+            words[bitCounter >> 5] |= (1 << (bitCounter & 31));
+          }
+          bitCounter++;
+          if (bitCounter >= 448) break;
+        }
+        if (bitCounter >= 448) break;
+      }
+      return words;
+    }
+
+    function bitmapDistanceFast(slotWords, templateWords) {
+      let diff = 0;
+      for (let i = 0; i < 14; i++) {
+        const xor = slotWords[i] ^ templateWords[i];
+        if (xor !== 0) {
+          diff += popcount32(xor);
+        }
+      }
+      return diff;
+    }
+
     function draw() {
+      initOffscreenLcd();
+      const currentKey = `${state.displayColors.background}-${state.displayColors.foreground}`;
+      if (currentKey !== cachedColorsKey) {
+        cachedBgABGR = hexToABGR(state.displayColors.background, 0xFFFFFFFF);
+        cachedFgABGR = hexToABGR(state.displayColors.foreground, 0xFF000000);
+        cachedColorsKey = currentKey;
+      }
+
       context.fillStyle = state.displayColors.background;
       context.fillRect(0, 0, canvas.width, canvas.height);
       if (state.grid) drawGrid();
-      context.fillStyle = state.displayColors.foreground;
 
-      for (let rawY = 0; rawY < displayHeight; rawY++) {
-        const page = rawY >> 3;
-        const mask = 1 << (rawY & 7);
-        const y = displayY(rawY);
-        for (let x = 0; x < displayWidth; x++) {
-          const controllerX = x + controllerStart;
-          const value = state.framebuffer[page * state.meta.controllerWidth + controllerX];
-          if (value & mask) {
-            context.fillRect(
-              (x + visualPaddingLeft()) * scale,
-              (y + visualPaddingTop()) * scale,
-              scale,
-              scale);
+      const fb = state.framebuffer;
+      if (fb && fb.length) {
+        const fg = cachedFgABGR;
+        const bg = state.grid ? 0 : cachedBgABGR;
+
+        for (let page = 0; page < 8; page++) {
+          const pageOffset = page * state.meta.controllerWidth;
+          const yBase = page * 8;
+          for (let x = 0; x < displayWidth; x++) {
+            const byteVal = fb[pageOffset + x + controllerStart];
+            for (let bit = 0; bit < 8; bit++) {
+              const rawY = yBase + bit;
+              const y = displayY(rawY);
+              const pixelIdx = y * 132 + x;
+              lcdPixels32[pixelIdx] = (byteVal & (1 << bit)) ? fg : bg;
+            }
           }
         }
+
+        offscreenCtx.putImageData(lcdImageData, 0, 0);
+        context.imageSmoothingEnabled = false;
+        context.drawImage(
+          offscreenCanvas,
+          visualPaddingLeft() * scale,
+          visualPaddingTop() * scale,
+          displayWidth * scale,
+          displayHeight * scale
+        );
       }
 
       if (!state.liveMode) drawActiveByte();
@@ -3728,7 +3929,13 @@
     }
 
     function scheduleLiveLogRender() {
-      const minimumIntervalMs = 100;
+      // In fast Live mode, DO NOT recreate 181 DOM buttons on every frame (Cortex-A53 bottleneck).
+      // Keep data in memory buffer; only render log if user paused or requested inspection.
+      if (state.liveMode && state.liveRunning && state.liveFollowLatest) {
+        $('windowLabel').textContent = `${state.liveEvents.length} live buffered`;
+        return;
+      }
+      const minimumIntervalMs = 500;
       const elapsed = performance.now() - state.lastLiveLogRender;
       if (elapsed >= minimumIntervalMs) {
         state.lastLiveLogRender = performance.now();
@@ -3744,15 +3951,43 @@
       }, minimumIntervalMs - elapsed);
     }
 
+    // Precomputed slot lookup by column: column (0..131) -> array of slot indices
+    let colToSlotIndices = null;
+    let dirtySlotMask = 0; // 32-bit mask of dirty slots in current burst
+
+    function buildColToSlotIndices() {
+      colToSlotIndices = Array.from({ length: 132 }, () => []);
+      if (!state.slots) return;
+      for (let sIdx = 0; sIdx < state.slots.length; sIdx++) {
+        const rect = state.slots[sIdx].rect;
+        for (let c = Math.max(0, rect.x1); c <= Math.min(131, rect.x2); c++) {
+          colToSlotIndices[c].push(sIdx);
+        }
+      }
+    }
+
     function applyLiveEventToFramebuffer(framebuffer, event) {
       if (!framebuffer) return;
       if (event.dc) {
-        if (event.page >= 0 && event.page < 8 &&
-            event.column >= 0 && event.column < 132) {
-          framebuffer[event.page * 132 + event.column] = event.value;
+        const page = event.page;
+        const column = event.column;
+        if (page >= 0 && page < 8 && column >= 0 && column < 132) {
+          const idx = page * 132 + column;
+          const oldVal = framebuffer[idx];
+          if (oldVal !== event.value) {
+            framebuffer[idx] = event.value;
+            if (!colToSlotIndices) buildColToSlotIndices();
+            const affected = colToSlotIndices[column];
+            if (affected) {
+              for (let i = 0; i < affected.length; i++) {
+                dirtySlotMask |= (1 << affected[i]);
+              }
+            }
+          }
         }
       } else if (event.value === 0xe2) {
         framebuffer.fill(0);
+        dirtySlotMask = 0xFFFFFFFF;
       }
     }
 
@@ -3935,6 +4170,16 @@
       $('liveScan').disabled = state.liveRunning;
       $('liveRate').disabled = state.liveRunning;
       $('liveBuffer').disabled = state.liveRunning;
+      const isReplay = Boolean(status.driver && status.driver.startsWith('replay'));
+      const isRec = Boolean(status.recording);
+      $('liveRecord').disabled = !state.liveRunning || isReplay;
+      if (isRec) {
+        $('liveRecord').textContent = `⏹ Grabando (${(status.recordedEvents || 0).toLocaleString()})`;
+        $('liveRecord').style.background = '#dc2626';
+      } else {
+        $('liveRecord').textContent = '⏺ Grabar SPI';
+        $('liveRecord').style.background = '#991b1b';
+      }
       const samplesReceived = Number(status.samplesReceived) || 0;
       const sampledSeconds = status.sampleRate
         ? (samplesReceived / status.sampleRate).toFixed(1)
@@ -3988,11 +4233,13 @@
       }
       applyLiveEventToFramebuffer(state.liveLatestFramebuffer, event);
       const limit = Number($('liveBuffer').value);
-      if (state.liveEvents.length >= limit) {
-        const evicted = state.liveEvents.shift();
+      if (state.liveEvents.length >= limit + 64) {
+        const evictCount = state.liveEvents.length - limit;
+        const evicted = state.liveEvents.splice(0, evictCount);
         if (state.liveBufferSeekable && state.liveBufferBaseFramebuffer) {
-          applyLiveEventToFramebuffer(
-            state.liveBufferBaseFramebuffer, evicted);
+          for (let i = 0; i < evicted.length; i++) {
+            applyLiveEventToFramebuffer(state.liveBufferBaseFramebuffer, evicted[i]);
+          }
         }
         if (!state.liveFollowLatest) {
           state.liveNeedsRebuild = true;
@@ -4083,11 +4330,17 @@
           fragment.appendChild(option);
         }
         $('liveDriver').replaceChildren(fragment);
-        const preferredBase = state.preferredLiveDriver.split(':', 1)[0];
-        const preferred = hardware.find((device) =>
-          device.driver.split(':', 1)[0] === preferredBase
-        );
-        if (preferred) $('liveDriver').value = preferred.driver;
+        const currentVal = $('liveDriver').value;
+        const exists = hardware.some((device) => device.driver === currentVal);
+        if (exists) {
+          $('liveDriver').value = currentVal;
+        } else {
+          const preferredBase = state.preferredLiveDriver.split(':', 1)[0];
+          const preferred = hardware.find((device) =>
+            device.driver.split(':', 1)[0] === preferredBase
+          );
+          if (preferred) $('liveDriver').value = preferred.driver;
+        }
         state.liveDeviceAvailable = hardware.length > 0;
         if (state.liveDeviceAvailable) {
           setCommsLostState(false);
@@ -4137,6 +4390,7 @@
     }
 
     function leaveLiveMode(stopCapture = false) {
+      dirtySlotMask = 0xFFFFFFFF;
       if (state.liveSource) {
         state.liveSource.close();
         state.liveSource = null;
@@ -4223,6 +4477,40 @@
         $('liveStop').disabled = true;
         $('liveStatus').textContent = 'Live: failed';
         $('status').textContent = `Live start error: ${error.message}`;
+      }
+    }
+
+    async function toggleLiveRecord() {
+      const isRecording = Boolean(state.liveLastStatus?.recording);
+      try {
+        if (!isRecording) {
+          $('liveRecord').disabled = true;
+          $('liveRecord').textContent = 'Iniciando…';
+          const resp = await fetch('/api/live/record/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'Error al iniciar grabación');
+          $('status').textContent = `Grabando SPI en ${data.filename}…`;
+        } else {
+          $('liveRecord').disabled = true;
+          $('liveRecord').textContent = 'Guardando…';
+          const resp = await fetch('/api/live/record/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'Error al detener grabación');
+          $('status').textContent = `Captura guardada con éxito (${(data.events || 0).toLocaleString()} eventos)`;
+          await discoverLiveDevices();
+        }
+      } catch (err) {
+        alert(`Error al gestionar grabación: ${err.message}`);
+      } finally {
+        $('liveRecord').disabled = false;
       }
     }
 
@@ -4950,6 +5238,7 @@
     $('liveScan').addEventListener('click', discoverLiveDevices);
     $('liveStart').addEventListener('click', startLiveCapture);
     $('liveStop').addEventListener('click', stopLiveCapture);
+    $('liveRecord').addEventListener('click', toggleLiveRecord);
     $('prevData').addEventListener('click', () => stepTo(state.dataIndices, -1));
     $('nextData').addEventListener('click', () => stepTo(state.dataIndices, 1));
     $('prevCommand').addEventListener('click', () => stepTo(state.commandIndices, -1));

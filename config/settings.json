@@ -72,7 +72,7 @@
   },
   "recognition": {
     "enabled": true,
-    "numericMatchPercent": 85.0,
+    "numericMatchPercent": 74.0,
     "templateLibrary": "calibrations/st7565_digits_16x28.json",
     "matchPercent": 90.0,
     "holdLastRecognized": true,
@@ -90,8 +90,9 @@
       6
     ],
     "defaultRowGap": 4,
+    "inactivityTimeoutSeconds": 30,
     "screenGuard": {
-      "enabled": true,
+      "enabled": false,
       "matchPercent": 90.0,
       "markers": [
         {
