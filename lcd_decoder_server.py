@@ -97,6 +97,27 @@ def scan_sigrok_devices(force: bool = False) -> list[dict]:
     return devices
 
 
+def force_usb_port_revive() -> bool:
+    """Triggers hardware port reset to clear parasitic latch-up in Saleae Logic FX2LP."""
+    try:
+        sys.stderr.write("[USB-Revive] Triggering automated USB port reset to clear parasitic latch-up...\n")
+        res = subprocess.run(
+            ["sudo", "/usr/local/bin/usb-port-reset"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if res.returncode == 0:
+            sys.stderr.write("[USB-Revive] Port reset completed successfully.\n")
+            return True
+        else:
+            sys.stderr.write(f"[USB-Revive] Port reset script exited with {res.returncode}: {res.stderr}\n")
+    except Exception as e:
+        sys.stderr.write(f"[USB-Revive] Exception during port reset: {e}\n")
+    return False
+
+
 class LiveCapture:
     """Continuous sigrok capture with state-machine auto-reconnect and epoch tracking."""
 
@@ -137,6 +158,7 @@ class LiveCapture:
 
     def _auto_reconnect_supervisor(self) -> None:
         backoff = 1.0
+        miss_count = 0
         while True:
             time.sleep(backoff)
             with self.lock:
@@ -149,15 +171,26 @@ class LiveCapture:
                     physical_hw = [d for d in devices if d.get("hardware") and d.get("driver", "").startswith("fx2lafw")]
                     matching = physical_hw or [d for d in devices if d.get("hardware")]
                     if matching:
+                        miss_count = 0
                         driver = matching[0]["driver"]
                         sys.stderr.write(f"[LiveSupervisor] Found hardware {driver}, starting live stream...\n")
                         self.start(driver, sample_rate, buffer_size)
                         backoff = 2.0
                     else:
-                        backoff = min(backoff * 1.5, 6.0)
-                except Exception:
-                    backoff = min(backoff * 1.5, 6.0)
+                        miss_count += 1
+                        if miss_count in (1, 3):
+                            sys.stderr.write(f"[LiveSupervisor] Analyzer not visible (miss {miss_count}), attempting USB port revive...\n")
+                            force_usb_port_revive()
+                            time.sleep(1.2)
+                        backoff = min(backoff * 1.5, 5.0)
+                except Exception as e:
+                    miss_count += 1
+                    if miss_count in (1, 3):
+                        force_usb_port_revive()
+                        time.sleep(1.2)
+                    backoff = min(backoff * 1.5, 5.0)
             else:
+                miss_count = 0
                 backoff = 2.0
 
     def _notify(self) -> None:
@@ -927,6 +960,7 @@ class Handler(SimpleHTTPRequestHandler):
         valid_paths = (
             "/api/live/start",
             "/api/live/stop",
+            "/api/live/revive",
             "/api/live/speed",
             "/api/live/record/start",
             "/api/live/record/stop",
@@ -985,6 +1019,10 @@ class Handler(SimpleHTTPRequestHandler):
                 if LIVE.driver.startswith("replay"):
                     LIVE.start(f"replay:{target.name}", LIVE.sample_rate, LIVE.buffer_size)
                 self.send_json({"success": True, "replayFile": filename})
+                return
+            if parsed.path == "/api/live/revive":
+                success = force_usb_port_revive()
+                self.send_json({"success": success})
                 return
             if parsed.path == "/api/live/start":
                 status = LIVE.start(

@@ -3202,11 +3202,15 @@
       // Si la captura en vivo está corriendo activamente, el hardware está presente
       if (state.liveRunning) {
         state.hardwareDisconnectedSince = null;
+        state.reviveAttempted = false;
+        state.secondReviveAttempted = false;
         return false;
       }
       // Si el escaneo detectó el analizador, resetear temporizador de desconexión
       if (state.liveDeviceAvailable) {
         state.hardwareDisconnectedSince = null;
+        state.reviveAttempted = false;
+        state.secondReviveAttempted = false;
         return false;
       }
       // Si la página lleva menos de 5 segundos abierta (arranque inicial / warmup), no dar falso positivo
@@ -3215,11 +3219,21 @@
       }
       // Si no está disponible y no está corriendo, registrar inicio de falla
       if (!state.hardwareDisconnectedSince) {
-        state.hardwareDisconnectedSince = now; // Comenzar período de gracia de 5s
+        state.hardwareDisconnectedSince = now; // Comenzar período de gracia
+        // Intentar revivir el puerto USB por software de forma proactiva
+        if (!state.reviveAttempted) {
+          state.reviveAttempted = true;
+          fetch('/api/live/revive', { method: 'POST' }).catch(() => {});
+        }
         return false;
       }
-      // Solo si persiste desconectado por más de 5.0 segundos continuos se confirma desconexión
-      return (now - state.hardwareDisconnectedSince) >= 5000;
+      // Si a los 3 segundos sigue ausente, disparar un segundo intento de reanimación
+      if ((now - state.hardwareDisconnectedSince) >= 3000 && !state.secondReviveAttempted) {
+        state.secondReviveAttempted = true;
+        fetch('/api/live/revive', { method: 'POST' }).catch(() => {});
+      }
+      // Solo si persiste desconectado por más de 6.0 segundos continuos tras intentar revivirlo se declara desconexión real
+      return (now - state.hardwareDisconnectedSince) >= 6000;
     }
 
     function setCommsLostState(lost, reason = '') {
