@@ -1,0 +1,24 @@
+#!/bin/bash
+# Pure USB Hardware Port Reset (non-disruptive to server process)
+# Clears parasitic latch-up in Cypress FX2LP (Saleae Logic)
+
+PORT_DISABLE="/sys/bus/usb/devices/1-0:1.0/usb1-port1/disable"
+
+if [ -f "$PORT_DISABLE" ]; then
+    echo "[USB-Port-Reset] Toggling $PORT_DISABLE..."
+    echo 1 > "$PORT_DISABLE"
+    sleep 0.8
+    echo 0 > "$PORT_DISABLE"
+    sleep 1.2
+fi
+
+# Fallback: cycle EHCI platform controller if device not back
+if ! lsusb -d 0925:3881 >/dev/null 2>&1; then
+    echo "[USB-Port-Reset] Cycling EHCI host controller..."
+    echo "5200000.usb" > /sys/bus/platform/drivers/ehci-platform/unbind 2>/dev/null
+    sleep 0.5
+    echo "5200000.usb" > /sys/bus/platform/drivers/ehci-platform/bind 2>/dev/null
+    sleep 1.5
+fi
+
+exit 0

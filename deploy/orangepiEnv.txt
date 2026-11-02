@@ -1,0 +1,8 @@
+verbosity=0
+bootlogo=true
+console=both
+disp_mode=1920x1080p60
+overlay_prefix=sun50i-h616
+rootdev=UUID=e0657b8f-0b3a-45cb-9544-9aaf244c21e4
+rootfstype=ext4
+extraargs=apparmor=0 quiet loglevel=0 vt.global_cursor_default=0 udev.log_level=0 splash

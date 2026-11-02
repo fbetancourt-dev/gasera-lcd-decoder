@@ -1,0 +1,125 @@
+#!/bin/bash
+# Pegasus Industrial Kiosk Session
+
+export DISPLAY=:0
+
+# Prevent monitor sleeping and screen blanking
+xset s off -dpms s noblank
+
+# Ensure backend ready state is reset so splash waits for fresh UI render
+curl -s -X POST -H 'Content-Type: application/json' -d '{"ready":false}' http://127.0.0.1:8081/api/ui/ready >/dev/null 2>&1
+
+# Launch unmanaged GTK3 full-screen splash overlay (override-redirect)
+# Window manager (xfwm4) cannot intercept, lower or cover this overlay window.
+/usr/local/bin/pegasus-splash &
+SPLASH_PID=$!
+
+# Safety cleanup: ensure splash is unconditionally killed
+cleanup() {
+    kill -15 "$SPLASH_PID" 2>/dev/null
+    kill -9 "$SPLASH_PID" 2>/dev/null
+    killall -9 pegasus-splash 2>/dev/null
+    killall -9 feh 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+# Fail-safe watchdog: guarantees splash dismissal after 18s max if something stalls
+(
+    sleep 18
+    cleanup
+) &
+WATCHDOG_PID=$!
+
+# Hide mouse cursor
+unclutter -idle 0.1 -root &
+
+# Lightweight window manager without software compositor
+xfwm4 --compositor=off &
+
+export MOZ_DISABLE_SAFE_MODE_KEY=1
+export MOZ_CRASHREPORTER_DISABLE=1
+export LIBGL_ALWAYS_SOFTWARE=1
+export MOZ_X11_EGL=0
+
+PROFILE_DIR="/home/orangepi/.pegasus-kiosk-profile"
+mkdir -p "$PROFILE_DIR/chrome"
+
+TARGET_URL="http://127.0.0.1:8081/lcd_decoder_light.html?view=clean&fullscreen=1"
+
+# Wait briefly for backend socket to be open before launching browser to avoid neterror
+for i in {1..40}; do
+    if curl --fail --silent --connect-timeout 0.3 --max-time 0.6 http://127.0.0.1:8081/api/live/status >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.2
+done
+
+# Configure Firefox user preferences to eliminate prompts and allow smooth kiosk operation
+cat << 'PREF' > "$PROFILE_DIR/user.js"
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.sessionstore.max_resumed_crashes", 0);
+user_pref("toolkit.startup.max_resumed_crashes", -1);
+user_pref("network.http.connection-retry-timeout", 1000);
+user_pref("dom.disable_beforeunload", true);
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+user_pref("browser.display.background_color", "#001238");
+user_pref("browser.display.use_system_colors", false);
+PREF
+
+# Configure chrome CSS to suppress any initial white canvas before DOM renders
+cat << 'CSS' > "$PROFILE_DIR/chrome/userChrome.css"
+@namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
+browser, #browser, .browserContainer, #tabbrowser-tabpanels, vbox, window {
+    background-color: #001238 !important;
+}
+CSS
+
+cat << 'CSS' > "$PROFILE_DIR/chrome/userContent.css"
+@-moz-document url-prefix(about:), url-prefix(chrome:) {
+    body, html { background-color: #001238 !important; }
+}
+CSS
+
+# Launch browser behind the splash overlay
+(
+    while true; do
+        rm -rf "$PROFILE_DIR"/.parentlock "$PROFILE_DIR"/*lock* "$PROFILE_DIR"/crashes "$PROFILE_DIR"/minidumps "$PROFILE_DIR"/sessionstore* 2>/dev/null
+        firefox-esr --kiosk --profile "$PROFILE_DIR" --no-remote "$TARGET_URL"
+        sleep 1
+    done
+) &
+BROWSER_PID=$!
+
+# Continuous Auto-Recovery Watchdog:
+# If Firefox ever gets stranded in an 'Unable to connect' or 'Problem loading page' state,
+# this background watcher automatically sends F5 reload once the backend responds.
+(
+    while true; do
+        sleep 2
+        ERR_WINS=$(xdotool search --name "Unable to connect|Problem loading page" 2>/dev/null)
+        if [ -n "$ERR_WINS" ]; then
+            if curl --fail --silent --connect-timeout 0.5 --max-time 1 http://127.0.0.1:8081/api/live/status >/dev/null 2>&1; then
+                DISPLAY=:0 xdotool key F5 2>/dev/null
+            fi
+        fi
+    done
+) &
+NETERROR_WATCHDOG_PID=$!
+
+# Monitor until the web app signals it has loaded $ and Lt in zeros correctly
+for i in {1..90}; do
+    if curl --fail --silent --connect-timeout 0.5 --max-time 1 http://127.0.0.1:8081/api/ui/ready 2>/dev/null | grep -q '"ready": *true'; then
+        break
+    fi
+    sleep 0.2
+done
+
+# Settling buffer for the X11 framebuffer to commit the pixels before dropping splash
+sleep 0.8
+
+# Smoothly dismiss splash and cancel watchdog
+kill -9 "$WATCHDOG_PID" 2>/dev/null
+cleanup
+
+wait "$BROWSER_PID"
+kill -9 "$NETERROR_WATCHDOG_PID" 2>/dev/null

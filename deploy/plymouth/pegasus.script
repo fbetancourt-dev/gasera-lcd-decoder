@@ -1,0 +1,23 @@
+# Pegasus High-Definition Plymouth Script
+Window.SetBackgroundTopColor(0.0, 0.07, 0.22);
+Window.SetBackgroundBottomColor(0.0, 0.07, 0.22);
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+
+bg_img = Image("background.png");
+
+if (screen_w != bg_img.GetWidth() || screen_h != bg_img.GetHeight()) {
+    scaled_bg = bg_img.Scale(screen_w, screen_h);
+} else {
+    scaled_bg = bg_img;
+}
+
+bg_sprite = Sprite(scaled_bg);
+bg_sprite.SetX(0);
+bg_sprite.SetY(0);
+bg_sprite.SetZ(-1000);
+
+fun refresh_callback () {
+}
+Plymouth.SetRefreshFunction(refresh_callback);

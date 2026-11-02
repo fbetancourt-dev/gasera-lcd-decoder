@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Pegasus
+Description=Pegasus Industrial Kiosk Splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/pegasus
+ScriptFile=/usr/share/plymouth/themes/pegasus/pegasus.script

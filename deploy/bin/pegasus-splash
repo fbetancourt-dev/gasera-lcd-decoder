@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""
+Pegasus Industrial Fullscreen Splash Overlay
+Guarantees absolute top-level coverage over the entire X11 screen
+using an unmanaged override-redirect window that window managers cannot lower or hide.
+Dynamically scales the elegant Pegasus blue wallpaper to fit any display resolution.
+"""
+
+import os
+import sys
+import signal
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib
+
+IMAGE_PATH = "/usr/share/backgrounds/pegasus-wallpaper.png"
+
+def main():
+    os.environ["GDK_BACKEND"] = "x11"
+
+    def quit_handler(*_):
+        try:
+            Gtk.main_quit()
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, quit_handler)
+    signal.signal(signal.SIGINT, quit_handler)
+
+    win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+    win.set_title("PegasusSplashOverlay")
+    win.set_decorated(False)
+    win.set_skip_taskbar_hint(True)
+    win.set_skip_pager_hint(True)
+    win.set_keep_above(True)
+    win.set_type_hint(Gdk.WindowTypeHint.SPLASHSCREEN)
+
+    screen = Gdk.Screen.get_default()
+    width = screen.get_width() if screen else 1920
+    height = screen.get_height() if screen else 1080
+
+    if os.path.exists(IMAGE_PATH):
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(IMAGE_PATH, width, height, False)
+            img = Gtk.Image.new_from_pixbuf(pixbuf)
+            win.add(img)
+        except Exception as e:
+            print(f"[Splash] Warning loading image: {e}", file=sys.stderr)
+            rgba = Gdk.RGBA()
+            rgba.parse("#0050ba")
+            win.override_background_color(Gtk.StateFlags.NORMAL, rgba)
+    else:
+        rgba = Gdk.RGBA()
+        rgba.parse("#0050ba")
+        win.override_background_color(Gtk.StateFlags.NORMAL, rgba)
+
+    win.fullscreen()
+    win.realize()
+
+    gdk_win = win.get_window()
+    if gdk_win:
+        gdk_win.set_override_redirect(True)
+        gdk_win.raise_()
+
+    win.show_all()
+
+    def keep_on_top():
+        if gdk_win:
+            try:
+                gdk_win.raise_()
+            except Exception:
+                pass
+        return True
+
+    GLib.timeout_add(150, keep_on_top)
+
+    try:
+        Gtk.main()
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == "__main__":
+    main()
