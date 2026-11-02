@@ -2580,19 +2580,24 @@
 
       let text;
       if (rowIndex === 0) {
-        // En precio/importe: si el punto está en la penúltima posición en la matriz = 1 decimal (DDDD.D)
-        const isSingleDecimal = (penultimateDots > antepenultimateDots) && (penultimateDots >= 1);
+        // En precio/importe: si el punto físico está en la penúltima posición (>= 1000)
+        const hasFourInts = isDigit(d4) && isDigit(d3) && isDigit(d2) && isDigit(d1);
+        const isSingleDecimal = (penultimateDots > antepenultimateDots) && (penultimateDots >= 1) && hasFourInts;
 
         if (isSingleDecimal) {
-          const dec0 = isDigit(d0) ? d0 : '0';
-          const intDigits = [d4, d3, d2, d1].filter(isDigit);
+          if (!isDigit(d0)) return { exact: false, valid: false, text: null };
+          const dec0 = d0;
+          const intDigits = [d4, d3, d2, d1];
           const intStr = intDigits.join('').replace(/^0+(?=\d)/, '');
           const intPart = intStr || '0';
           text = intPart + '.' + dec0;
         } else {
           // Antepenúltima posición = 2 decimales (DDD.DD)
-          const dec0 = isDigit(d0) ? d0 : '0';
-          const dec1 = isDigit(d1) ? d1 : '0';
+          if (!isDigit(d0) || !isDigit(d1)) {
+            return { exact: false, valid: false, text: null };
+          }
+          const dec0 = d0;
+          const dec1 = d1;
           const intDigits = [d4, d3, d2].filter(isDigit);
           const intStr = intDigits.join('').replace(/^0+(?=\d)/, '');
           const intPart = intStr || '0';
@@ -2600,16 +2605,18 @@
         }
       } else {
         // En litros: si el punto está en antepenúltima posición = 2 decimales; si no, 1 decimal
+        if (!isDigit(d0)) return { exact: false, valid: false, text: null };
         const isTwoDecimalsInLt = (antepenultimateDots > penultimateDots) && (antepenultimateDots >= 1);
         if (isTwoDecimalsInLt) {
-          const dec0 = isDigit(d0) ? d0 : '0';
-          const dec1 = isDigit(d1) ? d1 : '0';
+          if (!isDigit(d1)) return { exact: false, valid: false, text: null };
+          const dec0 = d0;
+          const dec1 = d1;
           const intDigits = [d4, d3, d2].filter(isDigit);
           const intStr = intDigits.join('').replace(/^0+(?=\d)/, '');
           const intPart = intStr || '0';
           text = intPart + '.' + dec1 + dec0;
         } else {
-          const dec0 = isDigit(d0) ? d0 : '0';
+          const dec0 = d0;
           const intDigits = [d4, d3, d2, d1].filter(isDigit);
           const intStr = intDigits.join('').replace(/^0+(?=\d)/, '');
           const intPart = intStr || '0';

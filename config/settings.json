@@ -63,7 +63,7 @@
         "minorGrid": "#092912"
       }
     },
-    "displayViewMode": "pixels"
+    "displayViewMode": "clean"
   },
   "capture": {
     "defaultSampleRate": 4000000,
@@ -92,12 +92,12 @@
     "defaultRowGap": 4,
     "inactivityHoldSeconds": 15,
     "screenGuard": {
-      "enabled": false,
-      "matchPercent": 90.0,
+      "enabled": true,
+      "matchPercent": 82.0,
       "markers": [
         {
           "template": "$",
-          "matchPercent": 90.0,
+          "matchPercent": 82.0,
           "rect": {
             "x1": 0,
             "y1": 0,
@@ -107,7 +107,7 @@
         },
         {
           "template": "Lt",
-          "matchPercent": 90.0,
+          "matchPercent": 82.0,
           "rect": {
             "x1": 0,
             "y1": 32,
