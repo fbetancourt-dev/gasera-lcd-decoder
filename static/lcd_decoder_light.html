@@ -3263,27 +3263,6 @@
         marker.textContent =
           state.cleanUnitStyle === 'litros' ? 'Litros' : 'Lt';
       }
-
-      if (!window._uiReadyNotified) {
-        window._uiReadyNotified = true;
-        const notifyReady = () => {
-          if (window._uiReadyAcknowledged) return;
-          const ctrl = new AbortController();
-          const timer = setTimeout(() => ctrl.abort(), 1000);
-          fetch('/api/ui/ready', { method: 'POST', signal: ctrl.signal })
-            .then(res => res.json())
-            .then(data => {
-              clearTimeout(timer);
-              if (data && data.ok) window._uiReadyAcknowledged = true;
-              else setTimeout(notifyReady, 300);
-            })
-            .catch(() => {
-              clearTimeout(timer);
-              setTimeout(notifyReady, 300);
-            });
-        };
-        notifyReady();
-      }
     }
 
     function applyCleanFont() {
@@ -5966,6 +5945,11 @@
     });
 
     async function initializeApp() {
+      // Apply fullscreen and clean mode styling immediately to prevent browser chrome flash
+      const earlyParams = new URLSearchParams(window.location.search);
+      if (earlyParams.get('fullscreen') !== '0' && earlyParams.get('fullscreen') !== 'false') {
+        document.body.classList.add('mode-fullscreen');
+      }
       installSidePanelResizer();
       const storedSidePanelWidth = Number(
         localStorage.getItem(sidePanelWidthStorageKey));
@@ -5973,7 +5957,6 @@
         Number.isFinite(storedSidePanelWidth) && storedSidePanelWidth >= 300
           ? storedSidePanelWidth
           : 410);
-      // Pre-render initial clean zero state immediately so DOM is valid from t=0
       renderCleanDisplay();
       loadRecognitionState();
       try {
@@ -6129,14 +6112,50 @@
           if (resp.ok) {
             const st = await resp.json();
             updateLiveStatus(st);
-            if (st.running && !state.liveMode) {
-              state.liveMode = true;
-              state.liveRunning = true;
-              connectLiveEvents();
-            }
           }
         } catch {}
       }, 2000);
+
+      renderCleanDisplay();
+      resizeDisplayForFullscreen();
+      signalAppReady();
+    }
+
+    function signalAppReady() {
+      if (window._uiReadyNotified) return;
+      window._uiReadyNotified = true;
+
+      const notifyReady = () => {
+        if (window._uiReadyAcknowledged) return;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 1000);
+        fetch('/api/ui/ready', { method: 'POST', signal: ctrl.signal })
+          .then(res => res.json())
+          .then(data => {
+            clearTimeout(timer);
+            if (data && data.ok) window._uiReadyAcknowledged = true;
+            else setTimeout(notifyReady, 250);
+          })
+          .catch(() => {
+            clearTimeout(timer);
+            setTimeout(notifyReady, 250);
+          });
+      };
+
+      const triggerSignal = () => {
+        // Double rAF ensures the display layout has been committed to the screen
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(notifyReady, 150);
+          });
+        });
+      };
+
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(triggerSignal).catch(triggerSignal);
+      } else {
+        triggerSignal();
+      }
     }
 
     initializeApp();
