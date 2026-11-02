@@ -973,17 +973,18 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path not in valid_paths:
             self.send_json({"error": "Unknown API endpoint"}, HTTPStatus.NOT_FOUND)
             return
-        if parsed.path == "/api/ui/ready":
-            global UI_READY
-            UI_READY = True
-            self.send_json({"ok": True, "ready": True})
-            return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length > 1_048_576:
                 raise ValueError("Request body is too large")
             payload = json.loads(self.rfile.read(length) or b"{}")
 
+            if parsed.path == "/api/ui/ready":
+                global UI_READY
+                ready_val = bool(payload.get("ready", True)) if isinstance(payload, dict) and "ready" in payload else True
+                UI_READY = ready_val
+                self.send_json({"ok": True, "ready": UI_READY})
+                return
             if parsed.path == "/api/settings/variant":
                 self.send_json(save_project_variant(payload))
                 return
