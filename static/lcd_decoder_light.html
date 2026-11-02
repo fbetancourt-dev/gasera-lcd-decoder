@@ -3266,7 +3266,23 @@
 
       if (!window._uiReadyNotified) {
         window._uiReadyNotified = true;
-        fetch('/api/ui/ready', { method: 'POST' }).catch(() => {});
+        const notifyReady = () => {
+          if (window._uiReadyAcknowledged) return;
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 1000);
+          fetch('/api/ui/ready', { method: 'POST', signal: ctrl.signal })
+            .then(res => res.json())
+            .then(data => {
+              clearTimeout(timer);
+              if (data && data.ok) window._uiReadyAcknowledged = true;
+              else setTimeout(notifyReady, 300);
+            })
+            .catch(() => {
+              clearTimeout(timer);
+              setTimeout(notifyReady, 300);
+            });
+        };
+        notifyReady();
       }
     }
 
@@ -5957,8 +5973,17 @@
         Number.isFinite(storedSidePanelWidth) && storedSidePanelWidth >= 300
           ? storedSidePanelWidth
           : 410);
+      // Pre-render initial clean zero state immediately so DOM is valid from t=0
+      renderCleanDisplay();
       loadRecognitionState();
-      await loadProjectSettings();
+      try {
+        await Promise.race([
+          loadProjectSettings(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Settings timeout')), 1500))
+        ]);
+      } catch (err) {
+        console.warn('Settings load warning (proceeding with safe defaults):', err);
+      }
       const variantSel = $('displayVariantSelect');
       if (variantSel) {
         variantSel.addEventListener('change', (e) => {

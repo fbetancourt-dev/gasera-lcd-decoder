@@ -896,7 +896,11 @@ class Handler(SimpleHTTPRequestHandler):
             self.stream_live_events()
             return
         if parsed.path == "/api/ui/ready":
-            self.send_json({"ready": UI_READY})
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ready": UI_READY}).encode("utf-8"))
             return
 
         super().do_GET()
