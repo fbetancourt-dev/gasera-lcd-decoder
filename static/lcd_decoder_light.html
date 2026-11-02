@@ -1680,6 +1680,8 @@
       settingsLoaded: false,
       settingsSyncTimer: 0,
       liveDeviceAvailable: false,
+      hardwareDisconnectedSince: null,
+      pageLoadTime: Date.now(),
       preferredLiveDriver: 'fx2lafw',
       lastRecognitionError: '',
       recognitionHeartbeat: 0,
@@ -3101,8 +3103,8 @@
       state.recognitionHeartbeat = window.setInterval(() => {
         const now = Date.now();
 
-        // Alerta de conexión: Únicamente cuando el analizador lógico (sigrok) esté desconectado
-        if (!state.liveDeviceAvailable) {
+        // Alerta de conexión: Únicamente cuando el analizador lógico esté desconectado por más de 5s continuos
+        if (isHardwareActuallyDisconnected()) {
           setCommsLostState(true, 'Analizador lógico no conectado');
           return;
         }
@@ -3195,6 +3197,31 @@
       if (state.ready) draw();
     }
 
+    function isHardwareActuallyDisconnected() {
+      const now = Date.now();
+      // Si la captura en vivo está corriendo activamente, el hardware está presente
+      if (state.liveRunning) {
+        state.hardwareDisconnectedSince = null;
+        return false;
+      }
+      // Si el escaneo detectó el analizador, resetear temporizador de desconexión
+      if (state.liveDeviceAvailable) {
+        state.hardwareDisconnectedSince = null;
+        return false;
+      }
+      // Si la página lleva menos de 5 segundos abierta (arranque inicial / warmup), no dar falso positivo
+      if ((now - (state.pageLoadTime || now)) < 5000) {
+        return false;
+      }
+      // Si no está disponible y no está corriendo, registrar inicio de falla
+      if (!state.hardwareDisconnectedSince) {
+        state.hardwareDisconnectedSince = now; // Comenzar período de gracia de 5s
+        return false;
+      }
+      // Solo si persiste desconectado por más de 5.0 segundos continuos se confirma desconexión
+      return (now - state.hardwareDisconnectedSince) >= 5000;
+    }
+
     function setCommsLostState(lost, reason = '') {
       const globalOverlay = $('globalCommsOverlay');
       const globalDesc = $('globalWarningDesc');
@@ -3204,7 +3231,7 @@
       if (row1Container) row1Container.hidden = false;
       if (row2Container) row2Container.hidden = false;
 
-      const isHardwareDisconnected = !state.liveDeviceAvailable;
+      const isHardwareDisconnected = isHardwareActuallyDisconnected();
 
       if (isHardwareDisconnected) {
         state.commsLost = true;
@@ -4265,7 +4292,7 @@
         `${samplesReceived.toLocaleString()} samples`;
       $('channels').textContent = 'D0=/CS · D1=SCLK · D2=MOSI · D3=D/C';
       updateLiveTimeline(status);
-      if (!state.liveDeviceAvailable) {
+      if (isHardwareActuallyDisconnected()) {
         setCommsLostState(true, status.lastError || 'Analizador lógico no conectado');
       }
     }
@@ -4403,9 +4430,12 @@
         }
         state.liveDeviceAvailable = hardware.length > 0;
         if (state.liveDeviceAvailable) {
+          state.hardwareDisconnectedSince = null;
           setCommsLostState(false);
         } else {
-          setCommsLostState(true, 'Analizador lógico no conectado');
+          if (isHardwareActuallyDisconnected()) {
+            setCommsLostState(true, 'Analizador lógico no conectado');
+          }
         }
         $('liveDriver').disabled = !state.liveDeviceAvailable || state.liveRunning;
         $('liveStart').disabled = !state.liveDeviceAvailable || state.liveRunning;

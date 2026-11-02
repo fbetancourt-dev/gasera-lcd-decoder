@@ -882,8 +882,25 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/live/devices":
             try:
-                self.send_json({"devices": scan_sigrok_devices(force=True)})
-            except RuntimeError as error:
+                devices = scan_sigrok_devices(force=True)
+                with LIVE.lock:
+                    if LIVE.running and LIVE.driver and not LIVE.driver.startswith("replay"):
+                        if not any(d.get("driver") == LIVE.driver for d in devices):
+                            devices.insert(0, {
+                                "driver": LIVE.driver,
+                                "label": f"Dispositivo activo ({LIVE.driver})",
+                                "hardware": True,
+                            })
+                self.send_json({"devices": devices})
+            except Exception as error:
+                with LIVE.lock:
+                    if LIVE.running and LIVE.driver and not LIVE.driver.startswith("replay"):
+                        self.send_json({"devices": [{
+                            "driver": LIVE.driver,
+                            "label": f"Dispositivo activo ({LIVE.driver})",
+                            "hardware": True,
+                        }]})
+                        return
                 self.send_json({"error": str(error)}, HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if parsed.path == "/api/live/status":
