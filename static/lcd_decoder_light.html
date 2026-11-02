@@ -3209,7 +3209,8 @@
       if (isHardwareDisconnected) {
         state.commsLost = true;
         state.commsLostReason = 'Analizador lógico no conectado';
-        if (globalDesc) globalDesc.textContent = 'Analizador lógico no conectado';
+        if (globalDesc) globalDesc.textContent = 'Por favor verifique la conexión con el Logic Analyzer (USB)';
+        if (globalOverlay) globalOverlay.hidden = false;
         $('comparisonStatus').textContent = '⚠️ Por favor verifique conexión con el display (Analizador lógico no conectado)';
       } else {
         if (globalOverlay) globalOverlay.hidden = true;
