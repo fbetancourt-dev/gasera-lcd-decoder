@@ -90,15 +90,6 @@ def scan_sigrok_devices(force: bool = False) -> list[dict]:
             "label": label,
             "hardware": True,
         })
-    bin_files = sorted(CAPTURES_DIR.glob("*.bin"), key=lambda p: p.stat().st_mtime, reverse=True)
-    for bf in bin_files:
-        if bf.stat().st_size >= 120:  # at least 10 events
-            event_count = bf.stat().st_size // 12
-            devices.append({
-                "driver": f"replay:{bf.name}",
-                "label": f"Playback: {bf.name} ({event_count:,} eventos)",
-                "hardware": True,
-            })
     if not devices and LAST_SCAN_CACHE:
         return LAST_SCAN_CACHE
     LAST_SCAN_CACHE = devices
@@ -496,25 +487,7 @@ class LiveCapture:
             framebuffer[:] = b"\0" * len(framebuffer)
 
     def start_recording(self, filename: str | None = None) -> dict:
-        with self.lock:
-            if not self.running:
-                raise RuntimeError("No se puede grabar: la captura en vivo no está corriendo.")
-            if self.recording:
-                return {"recording": True, "path": str(self.record_path), "events": self.recorded_events}
-            if not filename:
-                ts = time.strftime("%Y%m%d_%H%M%S")
-                filename = f"capture_live_{ts}.bin"
-            elif not filename.endswith(".bin"):
-                filename += ".bin"
-            clean_name = re.sub(r"[^A-Za-z0-9_.-]", "_", filename)
-            record_path = CAPTURES_DIR / clean_name
-            CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-            self.record_file = open(record_path, "wb")
-            self.record_path = record_path
-            self.recording = True
-            self.recorded_events = 0
-            self._notify()
-            return {"recording": True, "path": str(record_path), "filename": clean_name}
+        return {"recording": False, "error": "Recording to disk is disabled (live RAM only)"}
 
     def stop_recording(self) -> dict:
         with self.lock:
@@ -649,6 +622,7 @@ class LiveCapture:
 
 
 LIVE = LiveCapture()
+UI_READY = False
 
 
 def load_project_settings() -> dict:
@@ -814,6 +788,43 @@ class Handler(SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             return
 
+    def do_HEAD(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path in ("/", "/lcd_decoder_light.html"):
+            html_path = STATIC_DIR / "lcd_decoder_light.html"
+            if html_path.exists():
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(html_path.stat().st_size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                self.end_headers()
+                return
+        if parsed.path in ("/lcd_decoder_worker.js", "/static/lcd_decoder_worker.js"):
+            js_path = STATIC_DIR / "lcd_decoder_worker.js"
+            if js_path.exists():
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(js_path.stat().st_size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                self.end_headers()
+                return
+        if parsed.path in ("/lcd_trace.js", "/static/lcd_trace.js"):
+            js_path = STATIC_DIR / "lcd_trace.js"
+            if js_path.exists():
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(js_path.stat().st_size))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                self.end_headers()
+                return
+        super().do_HEAD()
+
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path in ("/", "/lcd_decoder_light.html"):
@@ -884,6 +895,9 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/live/events":
             self.stream_live_events()
             return
+        if parsed.path == "/api/ui/ready":
+            self.send_json({"ready": UI_READY})
+            return
 
         super().do_GET()
 
@@ -899,9 +913,15 @@ class Handler(SimpleHTTPRequestHandler):
             "/api/settings/variant",
             "/api/settings/recognition",
             "/api/settings/display-colors",
+            "/api/ui/ready",
         )
         if parsed.path not in valid_paths:
             self.send_json({"error": "Unknown API endpoint"}, HTTPStatus.NOT_FOUND)
+            return
+        if parsed.path == "/api/ui/ready":
+            global UI_READY
+            UI_READY = True
+            self.send_json({"ok": True, "ready": True})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))

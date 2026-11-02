@@ -1036,7 +1036,7 @@
     }
   </style>
 </head>
-<body>
+<body class="mode-fullscreen mode-clean aspect-preserve-grid">
   <div class="app">
     <header>
       <h1 id="headerTitle">ST7565 Light Decoder</h1>
@@ -3262,6 +3262,11 @@
       } else {
         marker.textContent =
           state.cleanUnitStyle === 'litros' ? 'Litros' : 'Lt';
+      }
+
+      if (!window._uiReadyNotified) {
+        window._uiReadyNotified = true;
+        fetch('/api/ui/ready', { method: 'POST' }).catch(() => {});
       }
     }
 
