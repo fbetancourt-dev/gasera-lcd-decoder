@@ -90,7 +90,8 @@
       6
     ],
     "defaultRowGap": 4,
-    "inactivityTimeoutSeconds": 30,
+    "inactivityHoldSeconds": 15,
+    "inactivityBlankSeconds": 15,
     "screenGuard": {
       "enabled": false,
       "matchPercent": 90.0,

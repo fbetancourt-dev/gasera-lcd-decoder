@@ -1627,9 +1627,10 @@
       cleanFont: 'system',
       cleanUnitStyle: 'lt',
       cleanRows: ['0.00', '0.0'],
-      inactivityTimeoutMs: 30000,
+      dispenserHoldMs: 15000,
+      dispenserBlankMs: 15000,
+      dispenserPhase: 'idle_zero',
       inactivityTimer: null,
-      isScreenBlankedDueToInactivity: false,
       lastActiveNumbersText: null,
       heldNumbers: null,
       pageLoadTime: Date.now(),
@@ -1941,8 +1942,11 @@
           state.numericMatchPercent = Math.max(
             70, Math.min(100, recognition.numericMatchPercent));
         }
-        if (Number.isFinite(recognition.inactivityTimeoutSeconds)) {
-          state.inactivityTimeoutMs = Math.max(1, recognition.inactivityTimeoutSeconds) * 1000;
+        if (Number.isFinite(recognition.inactivityHoldSeconds)) {
+          state.dispenserHoldMs = Math.max(1, recognition.inactivityHoldSeconds) * 1000;
+        }
+        if (Number.isFinite(recognition.inactivityBlankSeconds)) {
+          state.dispenserBlankMs = Math.max(1, recognition.inactivityBlankSeconds) * 1000;
         }
         state.screenGuard = normalizeScreenGuard(recognition.screenGuard);
         const templates = payload.templates || {};
@@ -2838,17 +2842,39 @@
       updateComparisonStatus();
     }
 
-    function scheduleInactivityTimeout() {
+    function clearDispenserInactivityTimers() {
       if (state.inactivityTimer) {
         clearTimeout(state.inactivityTimer);
         state.inactivityTimer = null;
       }
+    }
+
+    function scheduleDispenserInactivity() {
+      clearDispenserInactivityTimers();
+      state.dispenserPhase = 'hold_last';
+
       state.inactivityTimer = setTimeout(() => {
-        state.isScreenBlankedDueToInactivity = true;
-        state.cleanRows = ['', ''];
-        state.inactivityTimer = null;
+        state.dispenserPhase = 'blank';
         renderCleanDisplay();
-      }, state.inactivityTimeoutMs || 30000);
+
+        state.inactivityTimer = setTimeout(() => {
+          state.dispenserPhase = 'idle_zero';
+          state.cleanRows = ['0.00', '0.0'];
+          state.inactivityTimer = null;
+          renderCleanDisplay();
+        }, state.dispenserBlankMs || 15000);
+
+      }, state.dispenserHoldMs || 15000);
+    }
+
+    function onNewDispenserNumbers(analyses, text) {
+      clearDispenserInactivityTimers();
+      state.dispenserPhase = 'active';
+      state.lastActiveNumbersText = text;
+      state.heldNumbers = analyses.map((analysis) => analysis.text);
+      state.cleanRows = [...state.heldNumbers];
+      scheduleDispenserInactivity();
+      renderCleanDisplay();
     }
 
     function evaluateAsciiGrids() {
@@ -2862,24 +2888,15 @@
           : null;
         if (complete && text !== null) {
           state.lastValidDecodedTime = Date.now();
-          if (state.isScreenBlankedDueToInactivity || text !== state.lastActiveNumbersText) {
-            state.isScreenBlankedDueToInactivity = false;
-            state.lastActiveNumbersText = text;
-            state.heldNumbers = analyses.map((analysis) => analysis.text);
-            state.cleanRows = [...state.heldNumbers];
-            scheduleInactivityTimeout();
+          if (state.dispenserPhase !== 'active' || text !== state.lastActiveNumbersText) {
+            onNewDispenserNumbers(analyses, text);
           }
         }
         if (text !== grid.lastText) {
           grid.lastText = text;
           changed = true;
           if (text !== null) {
-            state.isScreenBlankedDueToInactivity = false;
-            state.lastActiveNumbersText = text;
-            state.heldNumbers = analyses.map((analysis) => analysis.text);
-            state.cleanRows = [...state.heldNumbers];
-            scheduleInactivityTimeout();
-            renderCleanDisplay();
+            onNewDispenserNumbers(analyses, text);
             const detail = {
               gridId: grid.id,
               rows: text.split('\n'),
@@ -2904,14 +2921,7 @@
           slot.lastSimilarity = null;
         }
         for (const grid of state.grids) grid.lastText = null;
-        if (!state.isScreenBlankedDueToInactivity && state.heldNumbers) {
-          renderCleanDisplay();
-        } else {
-          if (state.cleanRows[0] !== '' || state.cleanRows[1] !== '' || guardChanged) {
-            state.cleanRows = ['', ''];
-            renderCleanDisplay();
-          }
-        }
+        renderCleanDisplay();
         if (guardChanged) {
           renderRecognitionList();
           renderAsciiOutput();
@@ -3167,18 +3177,7 @@
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
-      if (state.commsLost || state.isScreenBlankedDueToInactivity) {
-        if (row1Container) row1Container.hidden = true;
-        if (row2Container) row2Container.hidden = true;
-        $('cleanRow1').textContent = '';
-        $('cleanRow2').textContent = '';
-        return;
-      }
-
-      const hasScreenGuard = state.screenGuard && state.screenGuard.enabled;
-      const isScreenActive = !hasScreenGuard || state.screenGuardActive;
-
-      if (!isScreenActive && !state.heldNumbers) {
+      if (state.commsLost || state.dispenserPhase === 'blank') {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
         $('cleanRow1').textContent = '';
@@ -3189,11 +3188,24 @@
       if (row1Container) row1Container.hidden = false;
       if (row2Container) row2Container.hidden = false;
 
-      const val1 = state.cleanRows[0] || (state.heldNumbers ? state.heldNumbers[0] : '0.00');
-      const val2 = state.cleanRows[1] || (state.heldNumbers ? state.heldNumbers[1] : '0.0');
+      let val1 = '0.00';
+      let val2 = '0.0';
 
-      const targetVal1 = val1 || '0.00'; if ($('cleanRow1').textContent !== targetVal1) $('cleanRow1').textContent = targetVal1;
-      const targetVal2 = val2 || '0.0'; if ($('cleanRow2').textContent !== targetVal2) $('cleanRow2').textContent = targetVal2;
+      if (state.dispenserPhase === 'idle_zero') {
+        val1 = '0.00';
+        val2 = '0.0';
+      } else if (state.dispenserPhase === 'hold_last') {
+        val1 = (state.heldNumbers && state.heldNumbers[0]) || state.cleanRows[0] || '0.00';
+        val2 = (state.heldNumbers && state.heldNumbers[1]) || state.cleanRows[1] || '0.0';
+      } else {
+        val1 = state.cleanRows[0] || (state.heldNumbers ? state.heldNumbers[0] : '0.00');
+        val2 = state.cleanRows[1] || (state.heldNumbers ? state.heldNumbers[1] : '0.0');
+      }
+
+      const targetVal1 = val1 || '0.00';
+      if ($('cleanRow1').textContent !== targetVal1) $('cleanRow1').textContent = targetVal1;
+      const targetVal2 = val2 || '0.0';
+      if ($('cleanRow2').textContent !== targetVal2) $('cleanRow2').textContent = targetVal2;
 
       const marker = $('cleanUnitMarker');
       if (state.cleanUnitStyle === 'subscript') {
