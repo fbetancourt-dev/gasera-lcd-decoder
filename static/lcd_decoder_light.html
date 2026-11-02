@@ -6112,6 +6112,11 @@
           if (resp.ok) {
             const st = await resp.json();
             updateLiveStatus(st);
+            if (st.running && !state.liveMode) {
+              state.liveMode = true;
+              state.liveRunning = true;
+              connectLiveEvents();
+            }
           }
         } catch {}
       }, 2000);
