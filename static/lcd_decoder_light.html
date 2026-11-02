@@ -2854,16 +2854,10 @@
       state.dispenserPhase = 'hold_last';
 
       state.inactivityTimer = setTimeout(() => {
-        state.dispenserPhase = 'blank';
+        state.dispenserPhase = 'idle_zero';
+        state.cleanRows = ['0.00', '0.0'];
+        state.inactivityTimer = null;
         renderCleanDisplay();
-
-        state.inactivityTimer = setTimeout(() => {
-          state.dispenserPhase = 'idle_zero';
-          state.cleanRows = ['0.00', '0.0'];
-          state.inactivityTimer = null;
-          renderCleanDisplay();
-        }, state.dispenserBlankMs || 15000);
-
       }, state.dispenserHoldMs || 15000);
     }
 
@@ -3177,7 +3171,7 @@
       const row1Container = $('cleanRowContainer1');
       const row2Container = $('cleanRowContainer2');
 
-      if (state.commsLost || state.dispenserPhase === 'blank') {
+      if (state.commsLost) {
         if (row1Container) row1Container.hidden = true;
         if (row2Container) row2Container.hidden = true;
         $('cleanRow1').textContent = '';
