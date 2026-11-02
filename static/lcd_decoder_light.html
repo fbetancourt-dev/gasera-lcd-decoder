@@ -2523,20 +2523,6 @@
       return rows;
     }
 
-    function hasSeparatorDot(slot) {
-      if (!slot || !slot.rect) return false;
-      const yStart = Math.max(slot.rect.y1, slot.rect.y2 - 7);
-      let onCount = 0;
-      for (let y = yStart; y <= slot.rect.y2; y++) {
-        const xStart = Math.max(0, slot.rect.x1 - 1);
-        const xEnd = Math.min(displayWidth - 1, slot.rect.x2 + 1);
-        for (let x = xStart; x <= xEnd; x++) {
-          if (displayPixelOn(x, y)) onCount++;
-        }
-      }
-      return onCount >= 3;
-    }
-
     function analyzeNumericRow(row, rowIndex) {
       if (rowIndex === undefined && row && row[0]) {
         rowIndex = row[0].rowIndex;
@@ -2544,17 +2530,12 @@
       if (!row || !row.length) return { exact: false, valid: false, text: null };
 
       let d4, d3, d2, d1, d0;
-      let sepTwoDecimals = null;
-      let sepOneDecimal = null;
-
       if (row.length >= 9) {
         d4 = row[0]?.currentLabel;
         d3 = row[2]?.currentLabel;
         d2 = row[4]?.currentLabel;
         d1 = row[6]?.currentLabel;
         d0 = row[8]?.currentLabel;
-        sepTwoDecimals = row[5];
-        sepOneDecimal = row[7];
       } else if (row.length === 5) {
         d4 = row[0]?.currentLabel;
         d3 = row[1]?.currentLabel;
@@ -2576,24 +2557,31 @@
         return { exact: false, valid: false, text: null };
       }
 
-      const dotAtOneDecimal = hasSeparatorDot(sepOneDecimal);
-      const dotAtTwoDecimals = hasSeparatorDot(sepTwoDecimals);
+      // Verdad absoluta de la matriz: contamos píxeles del punto en la cuadrícula física
+      const yBottomStart = (rowIndex === 0) ? 21 : 53;
+      const yBottomEnd = (rowIndex === 0) ? 27 : 59;
+
+      let antepenultimateDots = 0;
+      let penultimateDots = 0;
+
+      // Antepenúltima posición (entre D2 y D1, X: 77..83):
+      for (let y = yBottomStart; y <= yBottomEnd; y++) {
+        for (let x = 77; x <= 83; x++) {
+          if (displayPixelOn(x, y)) antepenultimateDots++;
+        }
+      }
+
+      // Penúltima posición (entre D1 y D0, X: 98..104):
+      for (let y = yBottomStart; y <= yBottomEnd; y++) {
+        for (let x = 98; x <= 104; x++) {
+          if (displayPixelOn(x, y)) penultimateDots++;
+        }
+      }
 
       let text;
       if (rowIndex === 0) {
-        let isSingleDecimal = false;
-        if (dotAtOneDecimal && !dotAtTwoDecimals) {
-          isSingleDecimal = true;
-        } else if (dotAtTwoDecimals && !dotAtOneDecimal) {
-          isSingleDecimal = false;
-        } else {
-          const allFourInts = [d4, d3, d2, d1].every(isDigit) && d4 !== '0';
-          if (allFourInts) {
-            isSingleDecimal = true;
-          } else {
-            isSingleDecimal = false;
-          }
-        }
+        // En precio/importe: si el punto está en la penúltima posición en la matriz = 1 decimal (DDDD.D)
+        const isSingleDecimal = (penultimateDots > antepenultimateDots) && (penultimateDots >= 1);
 
         if (isSingleDecimal) {
           const dec0 = isDigit(d0) ? d0 : '0';
@@ -2602,6 +2590,7 @@
           const intPart = intStr || '0';
           text = intPart + '.' + dec0;
         } else {
+          // Antepenúltima posición = 2 decimales (DDD.DD)
           const dec0 = isDigit(d0) ? d0 : '0';
           const dec1 = isDigit(d1) ? d1 : '0';
           const intDigits = [d4, d3, d2].filter(isDigit);
@@ -2610,7 +2599,9 @@
           text = intPart + '.' + dec1 + dec0;
         }
       } else {
-        if (dotAtTwoDecimals && !dotAtOneDecimal) {
+        // En litros: si el punto está en antepenúltima posición = 2 decimales; si no, 1 decimal
+        const isTwoDecimalsInLt = (antepenultimateDots > penultimateDots) && (antepenultimateDots >= 1);
+        if (isTwoDecimalsInLt) {
           const dec0 = isDigit(d0) ? d0 : '0';
           const dec1 = isDigit(d1) ? d1 : '0';
           const intDigits = [d4, d3, d2].filter(isDigit);
